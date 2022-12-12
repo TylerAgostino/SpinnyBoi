@@ -13,5 +13,5 @@ steps:
       tags: latest
 
 trigger:
-  branch:
-    - main
+  ref:
+    - refs/heads/main

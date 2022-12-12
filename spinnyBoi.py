@@ -37,9 +37,18 @@ class MyClient(discord.Client):
         if message.author == self.user:
             return
 
-        if str(message.content).startswith('spin '):
+        if str(message.content).lower().startswith('/spin '):
             selected_profile = str(message.content)[5:]
             url = generate_url(selected_profile)
+            file = await spin_dat_wheel(url)
+            if file is None:
+                await message.channel.send('Something went wrong.')
+            else:
+                fp = discord.File(file)
+                await message.channel.send(get_message(), file=fp)
+
+        if str(message.content).lower() == '/spin':
+            url = generate_url('default')
             file = await spin_dat_wheel(url)
             if file is None:
                 await message.channel.send('Something went wrong.')
@@ -76,7 +85,7 @@ def generate_url(profile):
             weights.append(str(weight))
     url_choices = urllib.parse.quote(','.join(options))
     url_weights = urllib.parse.quote(','.join(weights))
-    url = base_url+'choices='+url_choices+'&weights='+url_weights
+    url = base_url+'choices='+url_choices+'&weights='+url_weights+'&confetti=true'
     return url
 
 

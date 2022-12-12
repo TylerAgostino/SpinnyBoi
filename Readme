@@ -1,0 +1,8 @@
+Add to a server:
+https://discord.com/api/oauth2/authorize?client_id=1051558649379692584&permissions=35840&scope=bot
+
+To use:
+`/spin` to use the default profile
+`/spin other` to use the other profile
+
+Profiles are defined in profiles.yaml.

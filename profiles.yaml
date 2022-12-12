@@ -1,3 +1,13 @@
+# Define profiles here, which can be used by typing `/spin [profile_name]`
+# A template below
+#
+# profile_name:
+#   tracks:
+#     track_name: track_weight
+#     ...
+#   cars:
+#     car_name: car_weight
+#     ...
 default:
   tracks:
     Oulton Park: 3

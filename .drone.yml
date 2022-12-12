@@ -11,3 +11,7 @@ steps:
       password: ${DOCKER_PASSWORD}
       repo: tyleragostino/spinnyboi
       tags: latest
+
+trigger:
+  branch:
+    - main

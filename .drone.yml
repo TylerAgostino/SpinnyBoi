@@ -6,9 +6,10 @@ steps:
   - name: docker
     image: plugins/docker
     settings:
-      registry: hub.docker.com
-      username: tyleragostino
-      password: ${DOCKER_PASSWORD}
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
       repo: tyleragostino/spinnyboi
       tags: latest
 

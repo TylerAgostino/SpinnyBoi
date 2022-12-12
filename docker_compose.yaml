@@ -8,4 +8,4 @@ services:
     image: tyleragostino/spinnyboi:latest
     restart: always
     environment:
-      - BOT_TOKEN:${BOT_TOKEN}
+      - BOT_TOKEN=${BOT_TOKEN}

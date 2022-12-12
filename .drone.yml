@@ -1,9 +1,13 @@
 kind: pipeline
+name: default
 type: docker
-name: greeting
 
 steps:
-  - name: en
-    image: alpine
-    commands:
-      - echo hello world
+  - name: docker
+    image: plugins/docker
+    settings:
+      registry: hub.docker.com
+      username: tyleragostino
+      password: ${DOCKER_PASSWORD}
+      repo: tyleragostino/spinnyboi
+      tags: latest

@@ -1,3 +1,4 @@
 PyYAML~=5.4.1
 selenium~=4.7.2
 Pillow~=9.3.0
+discord.py

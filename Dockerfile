@@ -4,4 +4,4 @@ WORKDIR /
 COPY . .
 RUN pip3 install -r requirements.txt
 
-ENTRYPOINT ""
+ENTRYPOINT ["python", "spinnyBoi.py"]

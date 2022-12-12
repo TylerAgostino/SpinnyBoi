@@ -13,6 +13,7 @@ steps:
       registry: registry.hub.docker.com
       repo: registry.hub.docker.com/tyleragostino/spinnyboi
       tags: latest
+      build_args: BUILDKIT_INLINE_CACHE=1
 
 trigger:
   ref:

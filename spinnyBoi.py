@@ -1,6 +1,5 @@
 import os
 import discord
-import sys
 from selenium import webdriver
 from PIL import Image
 from selenium.webdriver.common.by import By
@@ -52,11 +51,7 @@ def main():
     intents = discord.Intents.default()
     intents.message_content = True
     client = MyClient(intents=intents)
-    # Get the bot token from the command-line argument
-    if len(sys.argv) < 2:
-        print('Error: No bot token specified')
-        sys.exit(1)
-    bot_token = sys.argv[1]
+    bot_token = os.getenv('BOT_TOKEN')
 
     client.run(bot_token)
 

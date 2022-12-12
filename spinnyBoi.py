@@ -3,6 +3,7 @@ import discord
 from selenium import webdriver
 from PIL import Image
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import time
 import datetime
 import typing # For typehinting
@@ -85,7 +86,8 @@ def spin_dat_wheel(url):
     os.makedirs(directory)
 
     # Create a new instance of the Chrome driver
-    driver = webdriver.Chrome()
+    driver = webdriver.Remote("http://selenium:4444/wd/hub", DesiredCapabilities.CHROME)
+
 
     # Navigate to the specified URL
     driver.get(url)

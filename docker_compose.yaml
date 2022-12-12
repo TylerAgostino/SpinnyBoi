@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  selenium:
+    image: selenium/standalone-chrome
+    ports:
+      - 4444:4444
+  spinnyboi:
+    image: tyleragostino/spinnyboi:latest
+    restart: always
+    environment:
+      - BOT_TOKEN:${BOT_TOKEN}

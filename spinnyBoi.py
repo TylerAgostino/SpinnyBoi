@@ -13,6 +13,7 @@ import shutil
 import yaml
 import urllib.parse
 import random
+import itertools
 
 def get_message():
     roll = random.random()
@@ -75,19 +76,26 @@ def generate_url(profile):
     options = []
     weights = []
     base_url = 'https://pickerwheel.com/emb/?'
-    for track in selected_profile['tracks']:
-        track = str(track).replace(',', '')
-        for car in selected_profile['cars']:
-            car = str(car).replace(',', '')
-            description = str(car + ' at ' + track)
-            options.append(description)
-            weight = selected_profile['tracks'][track] * selected_profile['cars'][car]
-            weights.append(str(weight))
+    sections = [selected_profile[x] for x in selected_profile]
+    for set, weight in get_combinations(sections):
+        options.append(str('-'.join(set)).replace(',', ''))
+        weights.append(str(weight))
     url_choices = urllib.parse.quote(','.join(options))
     url_weights = urllib.parse.quote(','.join(weights))
     url = base_url+'choices='+url_choices+'&weights='+url_weights+'&confetti=true'
     return url
 
+
+def get_combinations(option_arrays):
+    combinations = itertools.product(*option_arrays)
+    for combination in combinations:
+        keys = []
+        product = 1
+        for d in combination:
+            keys.extend(d.keys())
+            for value in d.values():
+                product *= value
+        yield keys, product
 
 @to_thread
 def spin_dat_wheel(url):

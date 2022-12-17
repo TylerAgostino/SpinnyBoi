@@ -10,18 +10,18 @@
 #     ...
 default:
   tracks:
-    Oulton Park: 3
-    Lime Rock Park: 3
-    Tsukuba: 3
-    VIR: 3
-    Charlotte: 3
-    Phoenix: 2
-    Wild West: 1
-    Organ Park: 3
-    Rudskogen: 3
-    Summit Point: 3
-    Okayama: 3
-    Laguna Seca: 3
-    Daytona RX: 1
+    - Oulton Park: 3
+    - Lime Rock Park: 3
+    - Tsukuba: 3
+    - VIR: 3
+    - Charlotte: 3
+    - Phoenix: 2
+    - Wild West: 1
+    - Organ Park: 3
+    - Rudskogen: 3
+    - Summit Point: 3
+    - Okayama: 3
+    - Laguna Seca: 3
+    - Daytona RX: 1
   cars:
-    Toyota GR86: 1
+    - Toyota GR86: 1

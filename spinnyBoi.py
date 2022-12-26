@@ -1,4 +1,7 @@
 import os
+import logging
+import sys
+
 import discord
 from selenium import webdriver
 from PIL import Image
@@ -14,6 +17,15 @@ import yaml
 import urllib.parse
 import random
 import itertools
+import tempfile
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 def get_message():
     roll = random.random()
@@ -29,33 +41,65 @@ def to_thread(func: typing.Callable) -> typing.Coroutine:
     return wrapper
 
 
+def get_info():
+    with open("profiles.yaml") as profile_file:
+        y = yaml.safe_load(profile_file)
+    x = "\n\n"
+    for top_level in y:
+        x = x + top_level + '\n'
+        for second_level in y[top_level]:
+            x = x + "   " + second_level + '\n'
+
+    r = "Type '/spin ' followed by a category. You can spin the top category ('/spin free') or pick a sub-category ('/spin free cars'). Your options are: " + str(x)
+    return r
+
 class MyClient(discord.Client):
     async def on_ready(self):
-        print('Logged on as', self.user)
+        logger.info('Logged on as ' + str(self.user))
 
     async def on_message(self, message):
         # don't respond to ourselves
         if message.author == self.user:
             return
 
+        if str(message.content).lower() == '/spinfo':
+            response_body = get_info()
+            response = await message.channel.send(response_body)
+
         if str(message.content).lower().startswith('/spin '):
-            selected_profile = str(message.content)[5:]
+            selected_profile = str(message.content)[5:].strip(' ')
             url = generate_url(selected_profile)
-            file = await spin_dat_wheel(url)
-            if file is None:
-                await message.channel.send('Something went wrong.')
+            original = await message.channel.send("Got it, one sec...")
+            if url is not None:
+                file = await spin_dat_wheel(url)
+                if file is None:
+                    await original.edit('Something went wrong.')
+                else:
+                    fp = discord.File(file)
+                    await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
             else:
-                fp = discord.File(file)
-                await message.channel.send(get_message(), file=fp)
+                await message.channel.send('Sorry, I don\'t recognize that command.')
 
         if str(message.content).lower() == '/spin':
             url = generate_url('default')
+            original = await message.channel.send("Got it, one sec...")
             file = await spin_dat_wheel(url)
             if file is None:
-                await message.channel.send('Something went wrong.')
+                await original.edit('Something went wrong.')
             else:
                 fp = discord.File(file)
-                await message.channel.send(get_message(), file=fp)
+                await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
+
+
+def get_value_from_nested_dict(d, s):
+    keys = s.split('.')
+    for key in keys[:-1]:
+        if key in d:
+            d = d[key]
+        else:
+            return None
+    return {keys[-1]: d[keys[-1]]}
+
 
 
 def main():
@@ -66,18 +110,25 @@ def main():
 
     client.run(bot_token)
 
+
 def generate_url(profile):
     with open("profiles.yaml") as profile_file:
         y = yaml.safe_load(profile_file)
-    try:
-        selected_profile = y[profile]
-    except KeyError:
+    initial_keywords = [x for x in y]
+    selection = None
+    for keyword in initial_keywords:
+        if profile.upper().startswith(keyword.upper()):
+            selection = (keyword, profile[len(keyword):].strip(' '))
+            break
+    if selection is None:
         return None
+
+    option_sets = [y[selection[0]][option] for option in y[selection[0]] if option.upper() == selection[1].upper() or selection[1] == '']
+
     options = []
     weights = []
     base_url = 'https://pickerwheel.com/emb/?'
-    sections = [selected_profile[x] for x in selected_profile]
-    for set, weight in get_combinations(sections):
+    for set, weight in get_combinations(option_sets):
         options.append(str('-'.join(set)).replace(',', ''))
         weights.append(str(weight))
     url_choices = urllib.parse.quote(','.join(options))
@@ -92,6 +143,8 @@ def get_combinations(option_arrays):
         keys = []
         product = 1
         for d in combination:
+            if isinstance(d, str):
+                keys.extend([1])
             keys.extend(d.keys())
             for value in d.values():
                 product *= value
@@ -103,8 +156,8 @@ def spin_dat_wheel(url):
     os.makedirs(directory)
 
     # Create a new instance of the Chrome driver
-    driver = webdriver.Remote("http://selenium:4444/wd/hub", DesiredCapabilities.CHROME)
-
+    # driver = webdriver.Remote("http://selenium:4444/wd/hub", DesiredCapabilities.CHROME)
+    driver = webdriver.Chrome(desired_capabilities=DesiredCapabilities.CHROME)
 
     # Navigate to the specified URL
     driver.get(url)
@@ -121,7 +174,9 @@ def spin_dat_wheel(url):
         return None
     frames = []
 
-    for i in range(100):
+
+
+    for i in range(90):
         driver.get_screenshot_as_file(directory+f"/screenshot_{i}.png")
         frames.append(Image.open(directory+f"/screenshot_{i}.png"))
 
@@ -129,11 +184,9 @@ def spin_dat_wheel(url):
     driver.close()
 
     # Save the gif
-    frames[0].save('recording.gif', format='GIF', append_images=frames[1:], save_all=True)
-
-    # Delete the originals
+    frames[0].save(directory+'.gif', format='GIF', append_images=frames[1:], save_all=True)
     shutil.rmtree(directory)
-    return 'recording.gif'
+    return directory+'.gif'
 
 
 if __name__ == '__main__':

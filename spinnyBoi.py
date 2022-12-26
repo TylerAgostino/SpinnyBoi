@@ -6,7 +6,7 @@ import discord
 from selenium import webdriver
 from PIL import Image
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.common.exceptions import WebDriverException
 import time
 import datetime
 import typing # For typehinting
@@ -73,7 +73,7 @@ class MyClient(discord.Client):
             if url is not None:
                 file = await spin_dat_wheel(url)
                 if file is None:
-                    await original.edit('Something went wrong.')
+                    await original.edit(content='Something went wrong.')
                 else:
                     fp = discord.File(file)
                     await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
@@ -85,7 +85,7 @@ class MyClient(discord.Client):
             original = await message.channel.send("Got it, one sec...")
             file = await spin_dat_wheel(url)
             if file is None:
-                await original.edit('Something went wrong.')
+                await original.edit(content='Something went wrong.')
             else:
                 fp = discord.File(file)
                 await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
@@ -155,38 +155,43 @@ def spin_dat_wheel(url):
     directory = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     os.makedirs(directory)
 
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
     # Create a new instance of the Chrome driver
-    driver = webdriver.Remote("http://selenium:4444/wd/hub", DesiredCapabilities.CHROME)
+    driver = webdriver.Remote("http://192.168.1.125:4444/wd/hub", options=options)
     # driver = webdriver.Chrome(desired_capabilities=DesiredCapabilities.CHROME)
+    try:
+        # Navigate to the specified URL
+        driver.get(url)
+        element = None
+        attempts = 0
+        while element is None and attempts < 5:
+            try:
+                element = driver.find_element(By.CSS_SELECTOR,"[class^='ReactTurntablestyle__ButtonText']")
+                element.click()
+            except Exception:
+                time.sleep(1)
+                attempts += 1
+        if element is None:
+            return None
+        frames = []
 
-    # Navigate to the specified URL
-    driver.get(url)
-    element = None
-    attempts = 0
-    while element is None and attempts < 5:
-        try:
-            element = driver.find_element(By.CSS_SELECTOR,"[class^='ReactTurntablestyle__ButtonText']")
-            element.click()
-        except Exception:
-            time.sleep(1)
-            attempts += 1
-    if element is None:
+
+
+        for i in range(60):
+            driver.get_screenshot_as_file(directory+f"/screenshot_{i}.png")
+            frames.append(Image.open(directory+f"/screenshot_{i}.png"))
+
+        # Close the browser
+        driver.close()
+
+        # Save the gif
+        frames[0].save(directory+'.gif', format='GIF', append_images=frames[1:], save_all=True)
+        shutil.rmtree(directory)
+        return directory+'.gif'
+    except WebDriverException:
         return None
-    frames = []
-
-
-
-    for i in range(90):
-        driver.get_screenshot_as_file(directory+f"/screenshot_{i}.png")
-        frames.append(Image.open(directory+f"/screenshot_{i}.png"))
-
-    # Close the browser
-    driver.close()
-
-    # Save the gif
-    frames[0].save(directory+'.gif', format='GIF', append_images=frames[1:], save_all=True)
-    shutil.rmtree(directory)
-    return directory+'.gif'
 
 
 if __name__ == '__main__':

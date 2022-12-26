@@ -156,8 +156,10 @@ def spin_dat_wheel(url):
     os.makedirs(directory)
 
     options = webdriver.ChromeOptions()
-    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
     # Create a new instance of the Chrome driver
     driver = webdriver.Remote("http://192.168.1.125:4444/wd/hub", options=options)
     # driver = webdriver.Chrome(desired_capabilities=DesiredCapabilities.CHROME)
@@ -185,12 +187,16 @@ def spin_dat_wheel(url):
 
         # Close the browser
         driver.close()
+        driver.quit()
 
         # Save the gif
         frames[0].save(directory+'.gif', format='GIF', append_images=frames[1:], save_all=True)
         shutil.rmtree(directory)
         return directory+'.gif'
-    except WebDriverException:
+    except WebDriverException as e:
+        logger.error(e.msg)
+        driver.close()
+        driver.quit()
         return None
 
 

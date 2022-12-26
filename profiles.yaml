@@ -62,53 +62,55 @@ free:
     - WeatherTech Raceway at Laguna Seca: 1
 
 layouts:
-  Virginia International Raceway:
-    - Full Course: 1
+  YOU MUST PICK A TRACK AS WELL:
+    - Asshole.: 1
+  VIR:
+    - Full: 1
     - South: 1
     - North: 1
     - Patriot: 1
     - Grand West: 1
     - Grand East: 1
-    - Patriot Reverse: 1
-  Tsukuba Circuit:
-    - 2000 Full: 1
-    - 2000 Moto: 1
-    - 2000 Short: 1
-    - 1000 Full: 1
-    - 1000 Outer: 1
-    - 1000 Chicane: 1
-    - 1000 Full Reverse: 1
-  Summit Point Raceway:
-    - Summit Point Raceway: 1
-    - Jefferson Circuit: 1
+    - Patriot Rev: 1
+  Tsukuba:
+    - 2k Full: 1
+    - 2k Moto: 1
+    - 2k Short: 1
+    - 1k Full: 1
+    - 1k Outer: 1
+    - 1k Chicane: 1
+    - 1k Full Rev: 1
+  Summit:
+    - Regular: 1
+    - Jefferson: 1
     - Short: 1
-    - Jefferson Reverse: 1
-  Oulton Park Circuit:
-    - International: 1
+    - Jefferson Rev: 1
+  Oulton:
+    - Intl: 1
     - Fosters: 1
     - Island: 1
-    - Intl w/out Hislop: 1
-    - Intl w/out Brittens: 1
-    - Intl w/no Chicanes: 1
-    - Fosters w/ Hislop: 1
-    - Island Historic: 1
-  Oran Park Raceway:
-    - Grand Prix: 1
+    - Intl no Hislop: 1
+    - Intl no Brittens: 1
+    - Intl no Chicanes: 1
+    - Fosters w Hislop: 1
+    - Historic: 1
+  Oran:
+    - GP: 1
     - South: 1
     - North: 1
     - North A: 1
     - North B: 1
     - Moto: 1
-  Okayama International Circuit:
+  Okayama:
     - Full: 1
     - Short: 1
-  Lime Rock Park:
-    - Grand Prix: 1
+  Lime Rock:
+    - GP: 1
     - Classic: 1
     - Chicanes: 1
-    - West Bend Chicane: 1
-  Charlotte Motor Speedway:
+    - West Bend: 1
+  Charlotte:
     - Roval: 1
-    - Roval - 2018: 1
-    - Roval Long - 2018: 1
-    - Oval - 2018: 1
+    - Roval 2018: 1
+    - Roval Long 2018: 1
+    - Oval 2018: 1

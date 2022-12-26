@@ -156,8 +156,8 @@ def spin_dat_wheel(url):
     os.makedirs(directory)
 
     # Create a new instance of the Chrome driver
-    # driver = webdriver.Remote("http://selenium:4444/wd/hub", DesiredCapabilities.CHROME)
-    driver = webdriver.Chrome(desired_capabilities=DesiredCapabilities.CHROME)
+    driver = webdriver.Remote("http://selenium:4444/wd/hub", DesiredCapabilities.CHROME)
+    # driver = webdriver.Chrome(desired_capabilities=DesiredCapabilities.CHROME)
 
     # Navigate to the specified URL
     driver.get(url)

@@ -10,19 +10,16 @@
 #     ...
 default:
   tracks:
-  - Oulton Park: 3
-  - Lime Rock Park: 3
-  - Tsukuba: 3
-  - VIR: 3
-  - Charlotte: 3
-  - Phoenix: 2
-  - Wild West: 1
-  - Oran Park: 3
-  - Rudskogen: 3
-  - Summit Point: 3
-  - Okayama: 3
-  - Laguna Seca: 3
-  - Daytona RX: 1
+    - Charlotte Motor Speedway: 1
+    - Lime Rock Park: 1
+    - Okayama International Circuit: 1
+    - Oran Park Raceway: 1
+    - Oulton Park Circuit: 1
+    - Rudskogen Motorsenter: 1
+    - Summit Point Raceway: 1
+    - Tsukuba Circuit: 1
+    - Virginia International Raceway: 1
+    - WeatherTech Raceway at Laguna Seca: 1
   cars:
     - Toyota GR86: 1
 free:
@@ -69,9 +66,7 @@ layouts:
     - South: 1
     - North: 1
     - Patriot: 1
-    - Grand West: 1
-    - Grand East: 1
-    - Patriot Rev: 1
+    - Grand: 1
   Tsukuba:
     - 2k Full: 1
     - 2k Moto: 1

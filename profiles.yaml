@@ -71,10 +71,6 @@ layouts:
     - 2k Full: 1
     - 2k Moto: 1
     - 2k Short: 1
-    - 1k Full: 1
-    - 1k Outer: 1
-    - 1k Chicane: 1
-    - 1k Full Rev: 1
   Summit:
     - Regular: 1
     - Jefferson: 1
@@ -92,9 +88,6 @@ layouts:
   Oran:
     - GP: 1
     - South: 1
-    - North: 1
-    - North A: 1
-    - North B: 1
     - Moto: 1
   Okayama:
     - Full: 1
@@ -108,4 +101,3 @@ layouts:
     - Roval: 1
     - Roval 2018: 1
     - Roval Long 2018: 1
-    - Oval 2018: 1

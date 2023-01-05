@@ -83,6 +83,7 @@ layouts:
   Oran:
     - GP: 1
     - Moto: 1
+    - South: 1
   Lime Rock:
     - GP: 1
     - Classic: 1

@@ -71,6 +71,9 @@ layouts:
   Summit:
     - Regular: 1
     - Short: 1
+  Okayama:
+    - Full: 1
+    - Short: 1
   Oulton:
     - Intl: 1
     - Fosters: 1

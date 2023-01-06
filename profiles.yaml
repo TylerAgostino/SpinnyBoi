@@ -64,17 +64,16 @@ layouts:
     - Full: 1
     - South: 1
     - North: 1
-    - Patriot: 1
     - Grand: 1
   Tsukuba:
     - 2k Full: 1
     - 2k Moto: 1
-    - 2k Short: 1
   Summit:
     - Regular: 1
-    - Jefferson: 1
     - Short: 1
-    - Jefferson Rev: 1
+  Okayama:
+    - Full: 1
+    - Short: 1
   Oulton:
     - Intl: 1
     - Fosters: 1
@@ -86,11 +85,8 @@ layouts:
     - Historic: 1
   Oran:
     - GP: 1
-    - South: 1
     - Moto: 1
-  Okayama:
-    - Full: 1
-    - Short: 1
+    - South: 1
   Lime Rock:
     - GP: 1
     - Classic: 1

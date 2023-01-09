@@ -3,10 +3,10 @@
 #
 # profile_name:
 #   tracks:
-#     track_name: track_weight
+#     - track_name: track_weight
 #     ...
 #   cars:
-#     car_name: car_weight
+#     - car_name: car_weight
 #     ...
 default:
   tracks:
@@ -15,8 +15,9 @@ default:
     - Okayama International Circuit: 1
     - Oran Park Raceway: 1
     - Oulton Park Circuit: 1
-    - Rudskogen Motorsenter: 1
+#    - Rudskogen Motorsenter: 1
     - Summit Point Raceway: 1
+#    - Tsukuba Circuit: 1
     - Virginia International Raceway: 1
     - WeatherTech Raceway at Laguna Seca: 1
   cars:

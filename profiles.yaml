@@ -11,7 +11,7 @@
 default:
   tracks:
     - Charlotte Motor Speedway: 1
-    - Lime Rock Park: 1
+#    - Lime Rock Park: 1
     - Okayama International Circuit: 1
     - Oran Park Raceway: 1
     - Oulton Park Circuit: 1

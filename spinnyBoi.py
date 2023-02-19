@@ -1,7 +1,7 @@
 import os
 import logging
 import sys
-
+import git
 import discord
 from selenium import webdriver
 from PIL import Image
@@ -26,6 +26,8 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
+repo = git.Repo(search_parent_directories=True)
+ghtag = repo.head.object.tag
 
 def get_message():
     roll = random.random()
@@ -56,6 +58,9 @@ def get_info():
 class MyClient(discord.Client):
     async def on_ready(self):
         logger.info('Logged on as ' + str(self.user))
+        activityt = discord.CustomActivity(ghtag)
+        activity = discord.Activity(name='Ver. ' + sha[-5:], type=discord.ActivityType.playing)
+        await self.change_presence(status=discord.Status.online, activity=activity)
 
     async def on_message(self, message):
         # don't respond to ourselves

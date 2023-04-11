@@ -76,6 +76,7 @@ class MyClient(discord.Client):
         if str(message.content).lower() == '/spin' or str(message.content).lower() == '/spin default':
             url = generate_url('season4')
             original = await message.channel.send("Got it, one sec...")
+            originaltwo = await message.channel.send("Please be patient, this will take a little longer than usual.")
             file = await spin_dat_wheel(url)
             if file is None:
                 await original.edit(content='Something went wrong.')
@@ -85,7 +86,8 @@ class MyClient(discord.Client):
                 filetwo = await spin_dat_wheel(urltwo)
                 fp = discord.File(file)
                 fptwo = discord.File(filetwo)
-                await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp, fptwo])
+                await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
+                await originaltwo.edit(content=None, attachments=[fptwo])
 
         if str(message.content).lower().startswith('/spin '):
             selected_profile = str(message.content)[5:].strip(' ')

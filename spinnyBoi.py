@@ -29,12 +29,14 @@ logger.addHandler(handler)
 repo = git.Repo(search_parent_directories=True)
 ghmsg = repo.head.object.message
 
+
 def get_message():
     roll = random.random()
     fp = open('messages.txt')
     messages = [message for message in fp.readlines()]
     lines = len(messages)
     return messages[int(int(roll*100) % lines)]
+
 
 def to_thread(func: typing.Callable) -> typing.Coroutine:
     @functools.wraps(func)
@@ -55,6 +57,7 @@ def get_info():
     r = "Type '/spin ' followed by a category. You can spin the top category ('/spin free') or pick a sub-category ('/spin free cars'). Your options are: " + str(x)
     return r
 
+
 class MyClient(discord.Client):
     async def on_ready(self):
         logger.info('Logged on as ' + str(self.user))
@@ -70,6 +73,20 @@ class MyClient(discord.Client):
             response_body = get_info()
             response = await message.channel.send(response_body)
 
+        if str(message.content).lower() == '/spin' or str(message.content).lower() == '/spin default':
+            url = generate_url('season4')
+            original = await message.channel.send("Got it, one sec...")
+            file = await spin_dat_wheel(url)
+            if file is None:
+                await original.edit(content='Something went wrong.')
+            else:
+                # second follow-up wheel:
+                urltwo = generate_url('conditions')
+                filetwo = await spin_dat_wheel(urltwo)
+                fp = discord.File(file)
+                fptwo = discord.File(filetwo)
+                await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp, fptwo])
+
         if str(message.content).lower().startswith('/spin '):
             selected_profile = str(message.content)[5:].strip(' ')
             url = generate_url(selected_profile)
@@ -83,16 +100,6 @@ class MyClient(discord.Client):
                     await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
             else:
                 await message.channel.send('Sorry, I don\'t recognize that command.')
-
-        if str(message.content).lower() == '/spin':
-            url = generate_url('default')
-            original = await message.channel.send("Got it, one sec...")
-            file = await spin_dat_wheel(url)
-            if file is None:
-                await original.edit(content='Something went wrong.')
-            else:
-                fp = discord.File(file)
-                await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
 
 
 def get_value_from_nested_dict(d, s):

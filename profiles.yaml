@@ -8,38 +8,103 @@
 #   cars:
 #     - car_name: car_weight
 #     ...
-default:
+season4:
+  tracks: # Fair share weight = 24
+    - Roval: 8
+    - Roval 2018: 8
+    - Roval Long 2018: 8
+
+    - Lime Rock GP: 6
+    - Lime Rock Classic: 6
+    - Lime Rock Chicanes: 6
+    - Lime Rock West Bend: 6
+
+    - Okayama Full: 12
+    - Okayama Short: 12
+
+    - Oran GP: 8
+    - Oran Moto: 8
+    - Oran South: 8
+
+    - Oulton Intl: 3
+    - Oulton Fosters: 3
+    - Oulton Island: 3
+    - Oulton Intl no Hislop: 3
+    - Oulton Intl no Brittens: 3
+    - Oulton Intl no Chicanes: 3
+    - Oulton Fosters w Hislop: 3
+    - Oulton Historic: 3
+
+    - Rudskogen Motorsenter: 24
+
+    - Summit Point Regular: 12
+    - Summit Point Short: 12
+
+    - Tsukuba 2k Full: 8
+    - Tsukuba 2k Moto: 8
+    - Tsukuba 2k Short: 8
+
+    - VIR Full: 6
+    - VIR South: 6
+    - VIR North: 6
+    - VIR Grand: 6
+
+    - Laguna Seca: 24
+
+    - Watkins Glen Cup: 6
+    - Watkins Glen Boot: 6
+    - Watkins Glen Classic Boot: 6
+    - Watkins Glen Classic: 6
+
+    - Sonoma Cup: 12
+    - Sonoma Cup Historic: 12
+
+    - Montreal: 19
+
+    - Phoenix Road: 19
+conditions:
+  starttime:
+    - MIDNIGHT: 1
+    - 1AM: 1
+    - 2AM: 1
+    - 3AM: 1
+    - 4AM: 1
+    - 5AM: 1
+    - 6AM: 1
+    - 7AM: 3
+    - 8AM: 3
+    - 9AM: 3
+    - 10AM: 3
+    - 11AM: 3
+    - NOON: 3
+    - 1PM: 3
+    - 2PM: 3
+    - 3PM: 3
+    - 4PM: 3
+    - 5PM: 3
+    - 6PM: 3
+    - 7PM: 1
+    - 8PM: 1
+    - 9PM: 1
+    - 10PM: 1
+    - 11PM: 1
+  timeaccel:
+    - 1x Time Acceleration: 1
+    - 2x Time Acceleration: 1
+    - 4x Time Acceleration: 1
+    - 8x Time Acceleration: 1
+season3:
   tracks:
-#    - Charlotte Motor Speedway: 1
-#    - Lime Rock Park: 1
-#    - Okayama International Circuit: 1
-#    - Oran Park Raceway: 1
-#    - Oulton Park Circuit: 1
-#    - Rudskogen Motorsenter: 1
-#    - Summit Point Raceway: 1
-#    - Tsukuba Circuit: 1
-#    - Virginia International Raceway: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-    - Laguna Seca: 1
-  cars:
-    - Toyota GR86: 1
+    - Charlotte Motor Speedway: 10
+    - Lime Rock Park: 10
+    - Okayama International Circuit: 10
+    - Oran Park Raceway: 10
+    - Oulton Park Circuit: 10
+    - Rudskogen Motorsenter: 10
+    - Summit Point Raceway: 10
+    - Tsukuba Circuit: 10
+    - Virginia International Raceway: 10
+    - Laguna Seca: 10
 free:
   cars:
     - Cadillac CTS-V Racecar: 1

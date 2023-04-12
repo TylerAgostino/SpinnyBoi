@@ -55,9 +55,9 @@ season4:
     - Watkins Glen Boot: 6
     - Watkins Glen Classic Boot: 6
     - Watkins Glen Classic: 6
-
-    - Sonoma Cup: 12
-    - Sonoma Cup Historic: 12
+#
+#    - Sonoma Cup: 12
+#    - Sonoma Cup Historic: 12
 
     - Montreal: 19
 
@@ -180,3 +180,11 @@ layouts:
     - Roval: 1
     - Roval 2018: 1
     - Roval Long 2018: 1
+  Sonoma:
+    - Cup: 1
+    - Historic: 1
+  Watkins Glen:
+    - Cup: 1
+    - Boot: 1
+    - Classic Boot: 1
+    - Classic: 1

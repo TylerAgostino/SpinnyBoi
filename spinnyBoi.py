@@ -116,7 +116,7 @@ class MyClient(discord.Client):
             selected_profile = str(message.content)[5:].strip(' ')
             url = generate_url(selected_profile)
             original = await message.channel.send("Got it, one sec...")
-            if url is not None:
+            if url is not None and not url.__contains__('?choices=&weights'):
                 file = await spin_dat_wheel(url)
                 if file is None:
                     await original.edit(content='Something went wrong.')

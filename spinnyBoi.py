@@ -137,7 +137,10 @@ def generate_url(profile):
         return None
 
     option_sets = [y[selection[0]][option] for option in y[selection[0]] if option.upper() == selection[1].upper() or selection[1] == '']
+    url = generate_url_from_option_sets(option_sets)
+    return url
 
+def generate_url_from_option_sets(option_sets):
     options = []
     weights = []
     base_url = 'https://pickerwheel.com/emb/?'

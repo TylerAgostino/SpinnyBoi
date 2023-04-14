@@ -3,7 +3,7 @@ name: default
 type: docker
 
 steps:
-  - name: push-prod
+  - name: push
     image: plugins/docker
     settings:
       username:
@@ -16,24 +16,7 @@ steps:
       build_args: BUILDKIT_INLINE_CACHE=1
     when:
       branch:
-        - production
-  - name: push-main
-    image: plugins/docker
-    settings:
-      username:
-        from_secret: docker_username
-      password:
-        from_secret: docker_password
-      registry: registry.hub.docker.com
-      repo: registry.hub.docker.com/tyleragostino/spinnyboi
-      tags: dev
-      build_args: BUILDKIT_INLINE_CACHE=1
-    when:
-      branch:
         - main
-
-
 trigger:
   ref:
     - refs/heads/main
-    - refs/heads/production

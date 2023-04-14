@@ -17,7 +17,8 @@ import yaml
 import urllib.parse
 import random
 import itertools
-import tempfile
+import csv
+import io
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -88,6 +89,28 @@ class MyClient(discord.Client):
                 fptwo = discord.File(filetwo)
                 await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
                 await originaltwo.edit(content=None, attachments=[fptwo])
+
+        if str(message.content).lower().startswith('/spin custom '):
+            try:
+                provided_values = str(message.content)[12:].strip(' ')
+                fh = io.StringIO(provided_values)
+                csv_reader = csv.reader(fh)
+                for row in csv_reader:
+                    break
+                option_sets = [[{a: 1} for a in row]]
+                url = generate_url_from_option_sets(option_sets)
+            except:
+                await message.channel.send('Something went wrong reading your input.')
+            else:
+                original = await message.channel.send("Got it, one sec...")
+                file = await spin_dat_wheel(url)
+                if file is None:
+                    await original.edit(content='Something went wrong.')
+                else:
+                    fp = discord.File(file)
+                    await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
+            finally:
+                return
 
         if str(message.content).lower().startswith('/spin '):
             selected_profile = str(message.content)[5:].strip(' ')

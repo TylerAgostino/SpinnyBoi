@@ -55,7 +55,8 @@ def get_info():
         for second_level in y[top_level]:
             x = x + "   " + second_level + '\n'
 
-    r = "Type '/spin ' followed by a category. You can spin the top category ('/spin free') or pick a sub-category ('/spin free cars'). Your options are: " + str(x)
+    r = "Type `/spin ` followed by a category. You can spin the top category (`/spin free`) or pick a sub-category (`/spin free cars`). Your options are: " + str(x)
+    r = r + "\n\n" + "You can also give custom options, by typing `/spin custom` followed by a comma-separated list. Like this: \n`/spin custom A,B,C`."
     return r
 
 

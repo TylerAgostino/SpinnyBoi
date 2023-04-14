@@ -9,59 +9,59 @@
 #     - car_name: car_weight
 #     ...
 season4:
-  tracks: # Fair share weight = 24
-    - Roval: 8
+  tracks: # Fair share weight = 24            # Max grid spots
+    - Roval: 8                                # 60
     - Roval 2018: 8
     - Roval Long 2018: 8
 
-    - Lime Rock GP: 6
+    - Lime Rock GP: 6                         # 60
     - Lime Rock Classic: 6
     - Lime Rock Chicanes: 6
     - Lime Rock West Bend: 6
 
-    - Okayama Full: 12
+    - Okayama Full: 12                        # 62
     - Okayama Short: 12
 
-    - Oran GP: 8
+    - Oran GP: 8                              # 57
     - Oran Moto: 8
     - Oran South: 8
 
-    - Oulton Intl: 3
-    - Oulton Fosters: 3
-    - Oulton Island: 3
-    - Oulton Intl no Hislop: 3
-    - Oulton Intl no Brittens: 3
-    - Oulton Intl no Chicanes: 3
-    - Oulton Fosters w Hislop: 3
-    - Oulton Historic: 3
+#    - Oulton Intl: 3                          # 40
+#    - Oulton Fosters: 3
+#    - Oulton Island: 3
+#    - Oulton Intl no Hislop: 3
+#    - Oulton Intl no Brittens: 3
+#    - Oulton Intl no Chicanes: 3
+#    - Oulton Fosters w Hislop: 3
+#    - Oulton Historic: 3
 
-    - Rudskogen Motorsenter: 24
+    - Rudskogen Motorsenter: 24               # 60
 
-    - Summit Point Regular: 12
+    - Summit Point Regular: 12                # 58
     - Summit Point Short: 12
 
-    - Tsukuba 2k Full: 8
+    - Tsukuba 2k Full: 8                      # 60
     - Tsukuba 2k Moto: 8
     - Tsukuba 2k Short: 8
 
-    - VIR Full: 6
+    - VIR Full: 6                             # 60
     - VIR South: 6
     - VIR North: 6
     - VIR Grand: 6
 
-    - Laguna Seca: 24
+    - Laguna Seca: 24                         # 62
 
-    - Watkins Glen Cup: 6
+    - Watkins Glen Cup: 6                     # 60
     - Watkins Glen Boot: 6
     - Watkins Glen Classic Boot: 6
     - Watkins Glen Classic: 6
 #
-#    - Sonoma Cup: 12
+#    - Sonoma Cup: 12                          # 62
 #    - Sonoma Cup Historic: 12
 
-    - Montreal: 19
+    - Montreal: 19       # target 80%         # 62
 
-    - Phoenix Road: 19
+    - Phoenix Road: 19   # target 80%         # 51
 conditions:
   starttime:
     - MIDNIGHT: 1

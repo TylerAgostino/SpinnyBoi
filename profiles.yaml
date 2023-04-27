@@ -51,10 +51,10 @@ season4:
 
     - Laguna Seca: 24                         # 62
 
-    - Watkins Glen Cup: 6                     # 60
-    - Watkins Glen Boot: 6
-    - Watkins Glen Classic Boot: 6
-    - Watkins Glen Classic: 6
+#    - Watkins Glen Cup: 6                     # 60
+#    - Watkins Glen Boot: 6
+#    - Watkins Glen Classic Boot: 6
+#    - Watkins Glen Classic: 6
 #
 #    - Sonoma Cup: 12                          # 62
 #    - Sonoma Cup Historic: 12
@@ -189,3 +189,22 @@ layouts:
     - Boot: 1
     - Classic Boot: 1
     - Classic: 1
+date:
+  month:
+    - Jan: 1
+    - Feb: 1
+    - Mar: 1
+    - Apr: 1
+    - May: 1
+    - Jun: 1
+    - Jul: 1
+    - Aug: 1
+    - Sep: 1
+    - Oct: 1
+    - Nov: 1
+    - Dec: 1
+  day:
+    - 1st: 1
+    - 8th: 1
+    - 15th: 1
+    - 22nd: 1

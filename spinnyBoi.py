@@ -1,7 +1,6 @@
 import os
 import logging
 import sys
-import git
 import discord
 from selenium import webdriver
 from PIL import Image
@@ -20,6 +19,9 @@ import itertools
 import csv
 import io
 
+ghmsg = "Week 2"
+
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
@@ -27,10 +29,6 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-repo = git.Repo(search_parent_directories=True)
-ghmsg = repo.head.object.message
-
-
 def get_message():
     roll = random.random()
     fp = open('messages.txt')

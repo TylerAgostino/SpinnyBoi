@@ -19,7 +19,7 @@ import itertools
 import csv
 import io
 
-ghmsg = "Week 2"
+ghmsg = "Week 3"
 
 
 logger = logging.getLogger()

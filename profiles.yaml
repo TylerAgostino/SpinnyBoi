@@ -10,9 +10,9 @@
 #     ...
 season4:
   tracks: # Fair share weight = 24            # Max grid spots
-    - Roval: 8                                # 60
-    - Roval 2018: 8
-    - Roval Long 2018: 8
+    - Charlotte Roval: 8                                # 60
+    - Charlotte Roval 2018: 8
+    - Charlotte Roval Long 2018: 8
 
 #    - Lime Rock GP: 6                         # 60
 #    - Lime Rock Classic: 6

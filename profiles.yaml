@@ -64,35 +64,102 @@ season4:
     - Phoenix Road: 19   # target 80%         # 51
 conditions:
   starttime:
-    - MIDNIGHT: 1
-    - 1AM: 1
-    - 2AM: 1
-    - 3AM: 1
-    - 4AM: 1
-    - 5AM: 1
-    - 6AM: 1
-    - 7AM: 3
-    - 8AM: 3
-    - 9AM: 3
-    - 10AM: 3
-    - 11AM: 3
-    - NOON: 3
-    - 1PM: 3
-    - 2PM: 3
-    - 3PM: 3
-    - 4PM: 3
-    - 5PM: 3
-    - 6PM: 3
-    - 7PM: 1
-    - 8PM: 1
-    - 9PM: 1
-    - 10PM: 1
-    - 11PM: 1
-  timeaccel:
-    - 1x Time Acceleration: 1
-    - 2x Time Acceleration: 1
-    - 4x Time Acceleration: 1
-    - 8x Time Acceleration: 1
+    #    - MIDNIGHT - 1x Time Acceleration: 3    # 1 AM, 100% dark
+    #    - 1 AM - 1x Time Acceleration: 3    # 2 AM, 100% dark
+    #    - 2 AM - 1x Time Acceleration: 3    # 3 AM, 100% dark
+    #    - 3 AM - 1x Time Acceleration: 3    # 4 AM, 100% dark
+    #    - 4 AM - 1x Time Acceleration: 3    # 5 AM, 100% dark
+    #    - 5 AM - 1x Time Acceleration: 3    # 6 AM, 100% dark
+    #    - 6 AM - 1x Time Acceleration: 3    # 7 AM, 100% dark
+    - 7 AM - 1x Time Acceleration: 1    # 8 AM, 0% dark
+    - 8 AM - 1x Time Acceleration: 1    # 9 AM, 0% dark
+    - 9 AM - 1x Time Acceleration: 1    # 10 AM, 0% dark
+    - 10 AM - 1x Time Acceleration: 1    # 11 AM, 0% dark
+    - 11 AM - 1x Time Acceleration: 1    # 12 PM, 0% dark
+    - NOON - 1x Time Acceleration: 1    # 1 PM, 0% dark
+    - 1 PM - 1x Time Acceleration: 1    # 2 PM, 0% dark
+    - 2 PM - 1x Time Acceleration: 1    # 3 PM, 0% dark
+    - 3 PM - 1x Time Acceleration: 1    # 4 PM, 0% dark
+    - 4 PM - 1x Time Acceleration: 1    # 5 PM, 0% dark
+    - 5 PM - 1x Time Acceleration: 1    # 6 PM, 0% dark
+    - 6 PM - 1x Time Acceleration: 1    # 7 PM, 0% dark
+    #    - 7 PM - 1x Time Acceleration: 3    # 8 PM, 100% dark
+    #    - 8 PM - 1x Time Acceleration: 3    # 9 PM, 100% dark
+    #    - 9 PM - 1x Time Acceleration: 3    # 10 PM, 100% dark
+    #    - 10 PM - 1x Time Acceleration: 3    # 11 PM, 100% dark
+    #    - 11 PM - 1x Time Acceleration: 3    # 12 AM, 100% dark
+    #    - MIDNIGHT - 2x Time Acceleration: 3    # 2 AM, 100% dark
+    #    - 1 AM - 2x Time Acceleration: 3    # 3 AM, 100% dark
+    #    - 2 AM - 2x Time Acceleration: 3    # 4 AM, 100% dark
+    #    - 3 AM - 2x Time Acceleration: 3    # 5 AM, 100% dark
+    #    - 4 AM - 2x Time Acceleration: 3    # 6 AM, 100% dark
+    #    - 5 AM - 2x Time Acceleration: 3    # 7 AM, 100% dark
+    #    - 6 AM - 2x Time Acceleration: 3    # 8 AM, 50% dark
+    - 7 AM - 2x Time Acceleration: 1    # 9 AM, 0% dark
+    - 8 AM - 2x Time Acceleration: 1    # 10 AM, 0% dark
+    - 9 AM - 2x Time Acceleration: 1    # 11 AM, 0% dark
+    - 10 AM - 2x Time Acceleration: 1    # 12 PM, 0% dark
+    - 11 AM - 2x Time Acceleration: 1    # 1 PM, 0% dark
+    - NOON - 2x Time Acceleration: 1    # 2 PM, 0% dark
+    - 1 PM - 2x Time Acceleration: 1    # 3 PM, 0% dark
+    - 2 PM - 2x Time Acceleration: 1    # 4 PM, 0% dark
+    - 3 PM - 2x Time Acceleration: 1    # 5 PM, 0% dark
+    - 4 PM - 2x Time Acceleration: 1    # 6 PM, 0% dark
+    - 5 PM - 2x Time Acceleration: 1    # 7 PM, 0% dark
+    #    - 6 PM - 2x Time Acceleration: 3    # 8 PM, 50% dark
+    #    - 7 PM - 2x Time Acceleration: 3    # 9 PM, 100% dark
+    #    - 8 PM - 2x Time Acceleration: 3    # 10 PM, 100% dark
+    #    - 9 PM - 2x Time Acceleration: 3    # 11 PM, 100% dark
+    #    - 10 PM - 2x Time Acceleration: 3    # 12 AM, 100% dark
+    #    - 11 PM - 2x Time Acceleration: 3    # 1 AM, 100% dark
+    #    - MIDNIGHT - 4x Time Acceleration: 3    # 4 AM, 100% dark
+    #    - 1 AM - 4x Time Acceleration: 3    # 5 AM, 100% dark
+    #    - 2 AM - 4x Time Acceleration: 3    # 6 AM, 100% dark
+    #    - 3 AM - 4x Time Acceleration: 3    # 7 AM, 100% dark
+    #    - 4 AM - 4x Time Acceleration: 3    # 8 AM, 75% dark
+    #    - 5 AM - 4x Time Acceleration: 3    # 9 AM, 50% dark
+    - 6 AM - 4x Time Acceleration: 3    # 10 AM, 25% dark
+    - 7 AM - 4x Time Acceleration: 1    # 11 AM, 0% dark
+    - 8 AM - 4x Time Acceleration: 1    # 12 PM, 0% dark
+    - 9 AM - 4x Time Acceleration: 1    # 1 PM, 0% dark
+    - 10 AM - 4x Time Acceleration: 1    # 2 PM, 0% dark
+    - 11 AM - 4x Time Acceleration: 1    # 3 PM, 0% dark
+    - NOON - 4x Time Acceleration: 1    # 4 PM, 0% dark
+    - 1 PM - 4x Time Acceleration: 1    # 5 PM, 0% dark
+    - 2 PM - 4x Time Acceleration: 1    # 6 PM, 0% dark
+    - 3 PM - 4x Time Acceleration: 1    # 7 PM, 0% dark
+    - 4 PM - 4x Time Acceleration: 3    # 8 PM, 25% dark
+    #    - 5 PM - 4x Time Acceleration: 3    # 9 PM, 50% dark
+    #    - 6 PM - 4x Time Acceleration: 3    # 10 PM, 75% dark
+    #    - 7 PM - 4x Time Acceleration: 3    # 11 PM, 100% dark
+    #    - 8 PM - 4x Time Acceleration: 3    # 12 AM, 100% dark
+    #    - 9 PM - 4x Time Acceleration: 3    # 1 AM, 100% dark
+    #    - 10 PM - 4x Time Acceleration: 3    # 2 AM, 100% dark
+    #    - 11 PM - 4x Time Acceleration: 3    # 3 AM, 100% dark
+    #    - MIDNIGHT - 8x Time Acceleration: 3    # 8 AM, 88% dark
+    #    - 1 AM - 8x Time Acceleration: 3    # 9 AM, 75% dark
+    #    - 2 AM - 8x Time Acceleration: 3    # 10 AM, 63% dark
+    #    - 3 AM - 8x Time Acceleration: 3    # 11 AM, 50% dark
+    #    - 4 AM - 8x Time Acceleration: 3    # 12 PM, 37% dark
+    - 5 AM - 8x Time Acceleration: 3    # 1 PM, 25% dark
+    - 6 AM - 8x Time Acceleration: 3    # 2 PM, 13% dark
+    - 7 AM - 8x Time Acceleration: 1    # 3 PM, 0% dark
+    - 8 AM - 8x Time Acceleration: 1    # 4 PM, 0% dark
+    - 9 AM - 8x Time Acceleration: 1    # 5 PM, 0% dark
+    - 10 AM - 8x Time Acceleration: 1    # 6 PM, 0% dark
+    - 11 AM - 8x Time Acceleration: 1    # 7 PM, 0% dark
+    - NOON - 8x Time Acceleration: 3    # 8 PM, 13% dark
+    - 1 PM - 8x Time Acceleration: 3    # 9 PM, 25% dark
+#    - 2 PM - 8x Time Acceleration: 3    # 10 PM, 37% dark
+#    - 3 PM - 8x Time Acceleration: 3    # 11 PM, 50% dark
+#    - 4 PM - 8x Time Acceleration: 3    # 12 AM, 63% dark
+#    - 5 PM - 8x Time Acceleration: 3    # 1 AM, 75% dark
+#    - 6 PM - 8x Time Acceleration: 3    # 2 AM, 88% dark
+#    - 7 PM - 8x Time Acceleration: 3    # 3 AM, 100% dark
+#    - 8 PM - 8x Time Acceleration: 3    # 4 AM, 100% dark
+#    - 9 PM - 8x Time Acceleration: 3    # 5 AM, 100% dark
+#    - 10 PM - 8x Time Acceleration: 3    # 6 AM, 100% dark
+#    - 11 PM - 8x Time Acceleration: 3    # 7 AM, 100% dark
 season3:
   tracks:
     - Charlotte Motor Speedway: 10

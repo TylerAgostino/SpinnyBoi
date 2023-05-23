@@ -29,20 +29,26 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-def get_message():
+greylist = [515926385731305502]
+
+def message_handler(file='messages.txt'):
     roll = random.random()
-    fp = open('messages.txt')
+    fp = open(file)
     messages = [message for message in fp.readlines()]
     lines = len(messages)
     return messages[int(int(roll*100) % lines)]
 
+def get_message():
+    return message_handler(file='messages.txt')
+
+def get_greylist():
+    return message_handler(file='greymessages.txt')
 
 def to_thread(func: typing.Callable) -> typing.Coroutine:
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         return await asyncio.to_thread(func, *args, **kwargs)
     return wrapper
-
 
 def get_info():
     with open("profiles.yaml") as profile_file:
@@ -67,6 +73,12 @@ class MyClient(discord.Client):
     async def on_message(self, message):
         # don't respond to ourselves
         if message.author == self.user:
+            return
+
+        # greylist
+        if message.author.id in greylist and random.randrange(1, 100) <= 50:
+            response_body = get_greylist()
+            response = await message.channel.send(response_body)
             return
 
         if str(message.content).lower() == '/spinfo':

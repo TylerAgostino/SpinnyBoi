@@ -78,7 +78,7 @@ class MyClient(discord.Client):
         # greylist
         if message.author.id in greylist and random.randrange(1, 100) <= 50:
             response_body = get_greylist()
-            response = await message.channel.send(response_body)
+            response = await message.channel.send(message.author.mention + " " + response_body)
             return
 
         if str(message.content).lower() == '/spinfo':

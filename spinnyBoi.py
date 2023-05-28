@@ -76,7 +76,7 @@ class MyClient(discord.Client):
             return
 
         # greylist
-        if message.author.id in greylist and random.randrange(1, 100) <= 50:
+        if str(message.content).lower().startswith('/spin') and message.author.id in greylist and random.randrange(1, 100) <= 50:
             response_body = get_greylist()
             response = await message.channel.send(message.author.mention + " " + response_body)
             return

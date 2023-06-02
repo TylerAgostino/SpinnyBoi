@@ -3,9 +3,6 @@ name: default
 type: docker
 
 steps:
-  - name: pull
-    image: python3.9
-    pull: if-not-exists
   - name: push
     image: plugins/docker
     settings:

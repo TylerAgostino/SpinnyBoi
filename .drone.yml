@@ -15,7 +15,6 @@ steps:
       registry: registry.hub.docker.com
       repo: registry.hub.docker.com/tyleragostino/spinnyboi
       tags: dev
-      build_args: BUILDKIT_INLINE_CACHE=1
     when:
       branch:
         - dev

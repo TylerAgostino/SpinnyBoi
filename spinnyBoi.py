@@ -18,6 +18,7 @@ import random
 import itertools
 import csv
 import io
+import requests
 import pandas as pd
 
 ghmsg = "Round 6"
@@ -78,9 +79,19 @@ class MyClient(discord.Client):
 
         # greylist
         if str(message.content).lower().startswith('/spin') and message.author.id in greylist and random.randrange(1, 100) <= 50:
-            response_body = get_greylist()
-            response = await message.channel.send(message.author.mention + " " + response_body)
-            return
+            if random.randrange(1,100) <= 10:
+                original = await message.channel.send("Got it, one sec...")
+                response = requests.get('https://media4.giphy.com/media/LrmU6jXIjwziE/giphy.gif?cid=ecf05e47t84wtpzmxqziq5zugsn7ms53jg279h4lp6y9u1w1&ep=v1_gifs_related&rid=giphy.gif&ct=g')
+                file = io.BytesIO(response.content)
+                file.name = 'upload.gif'
+                # time.sleep(1)
+                fp = discord.File(file)
+                await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
+                return
+            else:
+                response_body = get_greylist()
+                response = await message.channel.send(message.author.mention + " " + response_body)
+                return
 
         if str(message.content).lower() == '/spinfo':
             response_body = get_info()
@@ -100,7 +111,7 @@ class MyClient(discord.Client):
                     fp = discord.File(file)
                     await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
             else:
-                await message.channel.send('Sorry, I don\'t recognize that command.')
+                await original.edit(content='Something went wrong.')
             return
 
         if str(message.content).lower() == '/spin' or str(message.content).lower() == '/spin default':
@@ -193,50 +204,53 @@ def generate_url(profile):
     return url
 
 def generate_spreadsheet_url(tab, filter_string):
-    spreadsheet = os.getenv('GSHEET_ID')
-    tabs = {
-        'tracks': 0,
-        'cars': 863917880
-    }
-    spreadsheet_url = f'https://docs.google.com/spreadsheets/d/{spreadsheet}/export?format=csv&id={spreadsheet}&gid={tabs[tab]}'
-    df = pd.read_csv(spreadsheet_url)
-    df.columns = df.columns.str.lower()
-    filter_string = filter_string.strip(' ')
-    filters = filter_string.split(',')
-    filter_queries = []
-    for filter in filters:
-        try:
-            if filter.find('<>')>0:
-                a = filter.split('<>')
-                filter_queries.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-            elif filter.find('>=')>0:
-                a = filter.split('>=')
-                filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-            elif filter.find('<=')>0:
-                a = filter.split('<=')
-                filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-            elif filter.find('<')>0:
-                a = filter.split('<')
-                filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-            elif filter.find('>')>0:
-                a = filter.split('>')
-                filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-            elif filter.find(':')>0:
-                a = filter.split(':')
-                filter_queries.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-            elif filter.find('=')>0:
-                a = filter.split('=')
-                filter_queries.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
-        except Exception as e:
-            logger.error(str(e))
+    try:
+        spreadsheet = os.getenv('GSHEET_ID')
+        tabs = {
+            'tracks': 0,
+            'cars': 863917880
+        }
+        spreadsheet_url = f'https://docs.google.com/spreadsheets/d/{spreadsheet}/export?format=csv&id={spreadsheet}&gid={tabs[tab]}'
+        df = pd.read_csv(spreadsheet_url)
+        df.columns = df.columns.str.lower()
+        filter_string = filter_string.strip(' ')
+        filters = filter_string.split(',')
+        filter_queries = []
+        for filter in filters:
+            try:
+                if filter.find('<>')>0:
+                    a = filter.split('<>')
+                    filter_queries.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                elif filter.find('>=')>0:
+                    a = filter.split('>=')
+                    filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
+                elif filter.find('<=')>0:
+                    a = filter.split('<=')
+                    filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
+                elif filter.find('<')>0:
+                    a = filter.split('<')
+                    filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
+                elif filter.find('>')>0:
+                    a = filter.split('>')
+                    filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
+                elif filter.find(':')>0:
+                    a = filter.split(':')
+                    filter_queries.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                elif filter.find('=')>0:
+                    a = filter.split('=')
+                    filter_queries.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
+            except Exception as e:
+                logger.error(str(e))
 
-    filtereddf = df
-    for query_string in filter_queries:
-        filtereddf = filtereddf.query(query_string)
-    selections = filtereddf.fullname.array
-    option_set = [[{selection: 1} for selection in selections]]
-    url = generate_url_from_option_sets(option_set)
-    return url
+        filtereddf = df
+        for query_string in filter_queries:
+            filtereddf = filtereddf.query(query_string)
+        selections = filtereddf.fullname.array
+        option_set = [[{selection: 1} for selection in selections]]
+        url = generate_url_from_option_sets(option_set)
+        return url
+    except:
+        return None
 
 
 def generate_url_from_option_sets(option_sets):
@@ -266,7 +280,7 @@ def get_combinations(option_arrays):
         yield keys, product
 
 @to_thread
-def spin_dat_wheel(url):
+def spin_dat_wheel(url, f=True):
     directory = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
     os.makedirs(directory)
 
@@ -283,14 +297,14 @@ def spin_dat_wheel(url):
         driver.get(url)
         element = None
         attempts = 0
-        while element is None and attempts < 5:
+        while element is None and attempts < 5 and f:
             try:
                 element = driver.find_element(By.CSS_SELECTOR,"[class^='ReactTurntablestyle__ButtonText']")
                 element.click()
             except Exception:
                 time.sleep(1)
                 attempts += 1
-        if element is None:
+        if element is None and f:
             return None
         frames = []
 

@@ -3,21 +3,21 @@ name: default
 type: docker
 
 steps:
-  - name: pull
-    image: python:3.9
-  - name: push-dev
-    image: plugins/docker
-    settings:
-      username:
-        from_secret: docker_username
-      password:
-        from_secret: docker_password
-      registry: registry.hub.docker.com
-      repo: registry.hub.docker.com/tyleragostino/spinnyboi
-      tags: dev
-    when:
-      branch:
-        - dev
+#  - name: pull
+#    image: python:3.9
+#  - name: push-dev
+#    image: plugins/docker
+#    settings:
+#      username:
+#        from_secret: docker_username
+#      password:
+#        from_secret: docker_password
+#      registry: registry.hub.docker.com
+#      repo: registry.hub.docker.com/tyleragostino/spinnyboi
+#      tags: dev
+#    when:
+#      branch:
+#        - dev
   - name: push-main
     image: plugins/docker
     settings:

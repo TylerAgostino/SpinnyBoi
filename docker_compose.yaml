@@ -13,3 +13,4 @@ services:
     restart: always
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
+      - GSHEET_ID=${GSHEET_ID}

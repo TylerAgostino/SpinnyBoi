@@ -4,3 +4,4 @@ Pillow~=9.3.0
 discord.py
 gitpython
 pandas
+requests

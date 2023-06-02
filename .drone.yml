@@ -6,6 +6,11 @@ steps:
   - name: pull
     image: python3.9
     pull: if-not-exists
+    settings:
+      username:
+        from_secret: docker_username
+      password:
+        from_secret: docker_password
   - name: push
     image: plugins/docker
     settings:

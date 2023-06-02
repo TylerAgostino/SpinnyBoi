@@ -18,6 +18,7 @@ import random
 import itertools
 import csv
 import io
+import pandas as pd
 
 ghmsg = "Round 6"
 
@@ -30,6 +31,7 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 greylist = [515926385731305502]
+spreadsheet = os.getenv('GSHEET_ID')
 
 def message_handler(file='messages.txt'):
     roll = random.random()
@@ -84,6 +86,21 @@ class MyClient(discord.Client):
         if str(message.content).lower() == '/spinfo':
             response_body = get_info()
             response = await message.channel.send(response_body)
+
+        if str(message.content).lower().startswith('/spin spreadsheet'):
+            filter_string = str(message.content.lower()).removeprefix('/spin spreadsheet')
+            url = generate_spreadsheet_url(filter_string)
+            original = await message.channel.send("Got it, one sec...")
+            if url is not None and not url.__contains__('?choices=&weights'):
+                file = await spin_dat_wheel(url)
+                if file is None:
+                    await original.edit(content='Something went wrong.')
+                else:
+                    fp = discord.File(file)
+                    await original.edit(content=message.author.mention + " " + get_message(), attachments=[fp])
+            else:
+                await message.channel.send('Sorry, I don\'t recognize that command.')
+            return
 
         if str(message.content).lower() == '/spin' or str(message.content).lower() == '/spin default':
             url = generate_url('season4')
@@ -173,6 +190,33 @@ def generate_url(profile):
     option_sets = [y[selection[0]][option] for option in y[selection[0]] if option.upper() == selection[1].upper() or selection[1] == '']
     url = generate_url_from_option_sets(option_sets)
     return url
+
+def generate_spreadsheet_url(filter_string):
+    spreadsheet_url = f'https://docs.google.com/spreadsheets/d/{spreadsheet}/export?format=csv&id={spreadsheet}&gid=0'
+    df = pd.read_csv(spreadsheet_url)
+    df.columns = df.columns.str.lower()
+    filter_string = filter_string.strip(' ')
+    filters = filter_string.split(',')
+    filter_queries = []
+    for filter in filters:
+        a = None
+        if filter.find(':')>0:
+            a = filter.split(':')
+            filter_queries.append(f"{a[0].strip(' ')}.str.lower().str.contains('{a[1].strip(' ')}')")
+        elif filter.find('=')>0:
+            a = filter.split('=')
+            filter_queries.append(f"{a[0].strip(' ')}.str.lower()=='{a[1].strip(' ')}'")
+        elif filter.find('<>')>0:
+            a = filter.split('<>')
+            filter_queries.append(f"not {a[0].strip(' ')}.str.lower().str.contains('{a[1].strip(' ')}')")
+    filtereddf = df
+    for query_string in filter_queries:
+        filtereddf = filtereddf.query(query_string)
+    selections = filtereddf.combined.array
+    option_set = [[{selection: 1} for selection in selections]]
+    url = generate_url_from_option_sets(option_set)
+    return url
+
 
 def generate_url_from_option_sets(option_sets):
     options = []

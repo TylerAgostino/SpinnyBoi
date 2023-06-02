@@ -5,7 +5,7 @@ type: docker
 steps:
   - name: pull
     image: python:3.9
-  - name: push
+  - name: push-dev
     image: plugins/docker
     settings:
       username:
@@ -19,7 +19,7 @@ steps:
     when:
       branch:
         - dev
-  - name: push
+  - name: push-main
     image: plugins/docker
     settings:
       username:

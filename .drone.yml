@@ -3,6 +3,11 @@ name: default
 type: docker
 
 steps:
+  - name: pull
+    image: python:3.9
+    when:
+      branch:
+        - dev
   - name: push
     image: plugins/docker
     settings:

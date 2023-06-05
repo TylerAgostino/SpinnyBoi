@@ -59,22 +59,25 @@ season4:
 #    - Sonoma Cup: 12                          # 62
 #    - Sonoma Cup Historic: 12
 
-    - Daytona Road: 10       # target 80%    # 60
-    - Daytona NASCAR Road: 9                 # 60
+    - Daytona Road: 6                        # 60
+    - Daytona NASCAR Road: 6                 # 60
+    - Daytona Moto: 6
+    - Daytona Oval: 3
+    - Daytona Oval (2008): 3
 #    - Daytona Short: 4                        # 42
 #    - Daytona Road 2008: 4                    # 43
 #    - Daytona Short 2008: 4                   # 28
 #    - Daytona Moto 2008: 4                    # 43
 
-    - Mid-Ohio Full: 7       # target 80%     # 62
-    - Mid-Ohio Chicane: 6
-    - Mid-Ohio Short: 6
+    - Mid-Ohio Full: 8                        # 62
+    - Mid-Ohio Chicane: 8
+    - Mid-Ohio Short: 8
 
-    - Road Atlanta Full: 7    # target 80%    # 62
-    - Road Atlanta Short: 6
-    - Road Atlanta Club: 6
+    - Road Atlanta Full: 8                 # 62
+    - Road Atlanta Short: 8
+    - Road Atlanta Club: 8
 
-    - Mount Panorama: 19   # target 80%       # 62
+    - Mount Panorama: 24   # target 80%       # 62
 
     - Montreal: 19       # target 80%         # 62
 

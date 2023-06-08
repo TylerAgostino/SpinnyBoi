@@ -21,7 +21,7 @@ import io
 import requests
 import pandas as pd
 
-ghmsg = "Round 6"
+ghmsg = "Round 7"
 
 
 logger = logging.getLogger()
@@ -249,7 +249,8 @@ def generate_spreadsheet_url(tab, filter_string):
         option_set = [[{selection: 1} for selection in selections]]
         url = generate_url_from_option_sets(option_set)
         return url
-    except:
+    except Exception as e:
+        logging.exception(str(e))
         return None
 
 

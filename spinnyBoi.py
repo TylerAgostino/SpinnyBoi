@@ -31,7 +31,7 @@ handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-greylist = [515926385731305502]
+greylist = [515926385731305502, 335864725600600064]
 
 def message_handler(file='messages.txt'):
     roll = random.random()

@@ -3,5 +3,5 @@ selenium~=4.7.2
 Pillow~=9.3.0
 discord.py
 gitpython
-pandas
-requests
+pandas~=2.0.2
+requests~=2.31.0

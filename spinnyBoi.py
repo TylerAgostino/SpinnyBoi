@@ -25,7 +25,6 @@ import pandas as pd
 
 status_message = "Round 7"
 
-
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
@@ -41,7 +40,7 @@ def message_handler(file='messages.txt'):
     fp = open(file)
     messages = [message for message in fp.readlines()]
     lines = len(messages)
-    return messages[int(int(roll*100) % lines)]
+    return messages[int(int(roll * 100) % lines)]
 
 
 def get_message():
@@ -56,6 +55,7 @@ def to_thread(func: typing.Callable) -> typing.Coroutine:
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         return await asyncio.to_thread(func, *args, **kwargs)
+
     return wrapper
 
 
@@ -68,7 +68,8 @@ def get_info():
         for second_level in y[top_level]:
             x = x + "   " + second_level + '\n'
 
-    r = "Type `/spin ` followed by a category. You can spin the top category (`/spin free`) or pick a sub-category (`/spin free cars`). Your options are: " + str(x)
+    r = "Type `/spin ` followed by a category. You can spin the top category (`/spin free`) or pick a sub-category (`/spin free cars`). Your options are: " + str(
+        x)
     r = r + "\n\n" + "You can also give custom options, by typing `/spin custom` followed by a comma-separated list. Like this: \n`/spin custom A,B,C`."
     return r
 
@@ -85,8 +86,9 @@ class MyClient(discord.Client):
             return
 
         # grey list
-        if str(message.content).lower().startswith('/spin') and message.author.id in grey_list and random.randrange(1, 100) <= 50:
-            if random.randrange(1,100) <= 10:
+        if str(message.content).lower().startswith('/spin') and message.author.id in grey_list and random.randrange(1,
+                                                                                                                    100) <= 50:
+            if random.randrange(1, 100) <= 10:
                 original = await message.channel.send("Got it, one sec...")
                 url = 'https://media4.giphy.com/media/LrmU6jXIjwziE/giphy.gif?cid=ecf05e47t84wtpzmxqziq5zugsn7ms53jg279h4lp6y9u1w1&ep=v1_gifs_related&rid=giphy.gif&ct=g'
                 response = requests.get(url)
@@ -168,6 +170,7 @@ class MyClient(discord.Client):
                     files.append(dicordfiles)
             await original.edit(content=message.author.mention + " " + get_message(), attachments=files)
 
+
 def generate_preset_urls(preset_name):
     spreadsheet = os.getenv('GSHEET_ID')
     url = f'https://docs.google.com/spreadsheets/d/{spreadsheet}/gviz/tq?tqx=out:csv&sheet=presets'
@@ -177,6 +180,7 @@ def generate_preset_urls(preset_name):
         if isinstance(filters[tabname], str) and tabname != 'Fullname':
             urls.append(generate_spreadsheet_url(tabname, str(filters[tabname]).lower()))
     return urls
+
 
 def get_value_from_nested_dict(d, s):
     keys = s.split('.')
@@ -227,53 +231,53 @@ def generate_spreadsheet_url(tab, filter_string):
         weighting = None
         for filter in filters:
             try:
-                if filter.find('|')>0:
+                if filter.find('|') > 0:
                     or_query = []
                     for option in filter.split('|'):
-                        if option.find('<>')>0:
+                        if option.find('<>') > 0:
                             a = option.split('<>')
                             or_query.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                        elif option.find('>=')>0:
+                        elif option.find('>=') > 0:
                             a = option.split('>=')
                             or_query.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-                        elif option.find('<=')>0:
+                        elif option.find('<=') > 0:
                             a = option.split('<=')
                             or_query.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-                        elif option.find('<')>0:
+                        elif option.find('<') > 0:
                             a = option.split('<')
                             or_query.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-                        elif option.find('>')>0:
+                        elif option.find('>') > 0:
                             a = option.split('>')
                             or_query.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-                        elif option.find(':')>0:
+                        elif option.find(':') > 0:
                             a = option.split(':')
                             or_query.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                        elif option.find('=')>0:
+                        elif option.find('=') > 0:
                             a = option.split('=')
                             or_query.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
                     filter_queries.append(" | ".join(or_query))
                 else:
-                    if filter.find('!weight=')>0:
+                    if filter.find('!weight=') > 0:
                         weighting = filter.split('=')[1]
-                    elif filter.find('<>')>0:
+                    elif filter.find('<>') > 0:
                         a = filter.split('<>')
                         filter_queries.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                    elif filter.find('>=')>0:
+                    elif filter.find('>=') > 0:
                         a = filter.split('>=')
                         filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-                    elif filter.find('<=')>0:
+                    elif filter.find('<=') > 0:
                         a = filter.split('<=')
                         filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-                    elif filter.find('<')>0:
+                    elif filter.find('<') > 0:
                         a = filter.split('<')
                         filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-                    elif filter.find('>')>0:
+                    elif filter.find('>') > 0:
                         a = filter.split('>')
                         filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-                    elif filter.find(':')>0:
+                    elif filter.find(':') > 0:
                         a = filter.split(':')
                         filter_queries.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                    elif filter.find('=')>0:
+                    elif filter.find('=') > 0:
                         a = filter.split('=')
                         filter_queries.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
             except Exception as e:
@@ -303,7 +307,7 @@ def generate_url_from_option_sets(option_sets):
         weights.append(str(weight))
     url_choices = urllib.parse.quote(','.join(options))
     url_weights = urllib.parse.quote(','.join(weights))
-    url = base_url+'choices='+url_choices+'&weights='+url_weights+'&confetti=true'
+    url = base_url + 'choices=' + url_choices + '&weights=' + url_weights + '&confetti=true'
     return url
 
 
@@ -319,6 +323,7 @@ def get_combinations(option_arrays):
             for value in d.values():
                 product *= value
         yield keys, product
+
 
 @to_thread
 def spin_dat_wheel(url, f=True):
@@ -340,7 +345,7 @@ def spin_dat_wheel(url, f=True):
         attempts = 0
         while element is None and attempts < 5 and f:
             try:
-                element = driver.find_element(By.CSS_SELECTOR,"[class^='ReactTurntablestyle__ButtonText']")
+                element = driver.find_element(By.CSS_SELECTOR, "[class^='ReactTurntablestyle__ButtonText']")
                 element.click()
             except Exception:
                 time.sleep(1)
@@ -349,20 +354,18 @@ def spin_dat_wheel(url, f=True):
             return None
         frames = []
 
-
-
         for i in range(60):
-            driver.get_screenshot_as_file(directory+f"/screenshot_{i}.png")
-            frames.append(Image.open(directory+f"/screenshot_{i}.png"))
+            driver.get_screenshot_as_file(directory + f"/screenshot_{i}.png")
+            frames.append(Image.open(directory + f"/screenshot_{i}.png"))
 
         # Close the browser
         driver.close()
         driver.quit()
 
         # Save the gif
-        frames[0].save(directory+'.gif', format='GIF', append_images=frames[1:], save_all=True)
+        frames[0].save(directory + '.gif', format='GIF', append_images=frames[1:], save_all=True)
         shutil.rmtree(directory)
-        return directory+'.gif'
+        return directory + '.gif'
     except WebDriverException as e:
         logger.error(e.msg)
         driver.close()

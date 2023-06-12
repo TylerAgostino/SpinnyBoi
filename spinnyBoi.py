@@ -21,7 +21,7 @@ import io
 import requests
 import pandas as pd
 
-status_message = "Round 7"
+status_message = "Spreadsheet Test"
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)

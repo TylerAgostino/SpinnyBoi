@@ -1,9 +1,7 @@
-from math import isnan
 import os
 import logging
 import sys
 import discord
-import pandas
 from selenium import webdriver
 from PIL import Image
 from selenium.webdriver.common.by import By

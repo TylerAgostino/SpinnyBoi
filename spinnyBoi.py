@@ -21,7 +21,7 @@ import io
 import requests
 import pandas as pd
 
-status_message = "Spreadsheet Test"
+status_message = "/spin"
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -85,7 +85,7 @@ class MyClient(discord.Client):
 
         # grey list
         if str(message.content).lower().startswith('/spin') and message.author.id in grey_list and random.randrange(1,
-                                                                                                                    100) <= 50:
+                                                                                                                    100) <= 20:
             if random.randrange(1, 100) <= 10:
                 original = await message.channel.send("Got it, one sec...")
                 url = 'https://media4.giphy.com/media/LrmU6jXIjwziE/giphy.gif?cid=ecf05e47t84wtpzmxqziq5zugsn7ms53jg279h4lp6y9u1w1&ep=v1_gifs_related&rid=giphy.gif&ct=g'

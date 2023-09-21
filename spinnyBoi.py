@@ -222,6 +222,7 @@ def generate_spreadsheet_url(tab, filter_string):
         spreadsheet = os.getenv('GSHEET_ID')
         url = f'https://docs.google.com/spreadsheets/d/{spreadsheet}/gviz/tq?tqx=out:csv&sheet={tab}'
         df = pd.read_csv(url)
+        df = df.fillna('')
         df.columns = df.columns.str.lower()
         filter_string = filter_string.strip(' ')
         filters = filter_string.split(',')

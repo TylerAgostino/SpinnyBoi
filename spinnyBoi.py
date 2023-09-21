@@ -343,7 +343,7 @@ def spin_dat_wheel(url, f=True):
         attempts = 0
         while element is None and attempts < 5 and f:
             try:
-                element = driver.find_element(By.CSS_SELECTOR, "[class^='ReactTurntablestyle__ButtonText']")
+                element = driver.find_element(By.CSS_SELECTOR, "[class^='ReactTurntablestyle__TurntableButton']")
                 element.click()
             except Exception:
                 time.sleep(1)

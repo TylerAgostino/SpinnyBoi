@@ -1,7 +1,12 @@
+import io
+import os
+import uuid
+from selenium import webdriver
 import drawsvg as draw
 import random
 import math
-
+from PIL import Image
+import shutil
 
 class WheelSpinner:
     def __init__(self, options: list = None):
@@ -16,21 +21,64 @@ class WheelSpinner:
             else:
                 self.weighted_options.append((option, 1))
         self.shuffle()
+        self.animation = self.generate_animation()
 
     def save_svg(self, filename):
         animation = self.generate_animation()
         animation.save_svg(filename)
         return self.weighted_options[0]
 
+    def return_svg(self):
+        animation = self.generate_animation()
+        return animation.as_svg()
+
+    def return_gif(self):
+        # create a directory with a unique name
+        # generate a uuid for the directory name
+        run_id = f'{os.getcwd()}/{str(uuid.uuid4())[0:8]}'
+        os.makedirs(run_id)
+        options = webdriver.FirefoxOptions()
+        options.add_argument('--headless')
+        options.add_argument('--window-size=400x400')
+
+        driver = webdriver.Firefox(options=options)
+        self.animation.save_html(f'{run_id}/wheel.html')
+        driver.get(f'file://{run_id}/wheel.html')
+        frames = []
+        for i in range(100):
+            driver.get_screenshot_as_file(f"{run_id}/{i}.png")
+            f = Image.open(f"{run_id}/{i}.png")
+            f.info['duration'] = 0.1
+            frames.append(f)
+
+        # Close the browser
+        driver.close()
+        driver.quit()
+
+
+        # Return the gif
+        fh = io.BytesIO()
+
+        frames[0].save(fh, format='GIF', append_images=frames[1:], save_all=True, duration=5, optimize=False, loop=0)
+        fh.seek(0)
+        shutil.rmtree(run_id)
+        return fh
+
     def generate_animation(self):
-        d = draw.Drawing(200, 200, origin='center')
+        d = draw.Drawing(200, 200, origin='center', animation_config=draw.types.SyncedAnimationConfig(
+            # Animation configuration
+            duration=5,  # Seconds
+            show_playback_progress=False,
+            show_playback_controls=False,
+            pause_on_load=False))
         wheel = self.get_wheel()
         start_pos = random.randint(0, 360)
         end_pos = 180/len(self.weighted_options)
 
 
+
         wheel.append_anim(draw.AnimateTransform('rotate',
-                                                10,
+                                                5,
                                                 repeat_count='1',
                                                 fill='freeze',
                                                 calc_mode='linear',
@@ -51,7 +99,6 @@ class WheelSpinner:
                            marker_end=arrow))  # Add an arrow to the end of a line
 
         d.set_pixel_scale(4)  # Set number of pixels per geometry unit
-
         return d
 
     def get_wheel(self):

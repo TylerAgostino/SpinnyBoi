@@ -20,6 +20,7 @@ import csv
 import io
 import requests
 import pandas as pd
+from modules import CommandHandler
 
 status_message = "/spin"
 
@@ -82,6 +83,13 @@ class MyClient(discord.Client):
         # don't respond to ourselves
         if message.author == self.user:
             return
+
+        if str(message.content).lower().startswith('/spin'):
+            command = str(message.content).lower().removeprefix('/spin').strip(' ')
+            response = CommandHandler.CommandHandler(command)
+            await message.channel.send(response.response_text, file=response.response_attachment)
+            return
+
 
         # grey list
         if str(message.content).lower().startswith('/spin') and message.author.id in grey_list and random.randrange(1,

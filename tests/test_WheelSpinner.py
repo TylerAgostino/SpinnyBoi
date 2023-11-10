@@ -7,7 +7,7 @@ class TestWheelSpinner(unittest.TestCase):
         self.wheel = WheelSpinner.WheelSpinner()
 
     def test_spin(self):
-        print(self.wheel.save_svg('test.svg'))
+        print(self.wheel.return_gif())
 
     def test_quite_a_few(self):
         options = []
@@ -15,7 +15,8 @@ class TestWheelSpinner(unittest.TestCase):
             options.append(f'option {i}')
         options.append('some really long fuckoff option with a bunch of text')
         self.wheel = WheelSpinner.WheelSpinner(options)
-        print(self.wheel.save_svg('test.svg'))
+        gif = self.wheel.return_gif()
+        gif
 
     def test_abuse(self):
         options = []
@@ -24,3 +25,4 @@ class TestWheelSpinner(unittest.TestCase):
         options.append('some really long fuckoff option with a bunch of text')
         self.wheel = WheelSpinner.WheelSpinner(options)
         self.wheel.save_svg('test.svg')
+

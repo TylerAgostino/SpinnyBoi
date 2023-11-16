@@ -1,7 +1,8 @@
 PyYAML~=5.4.1
-selenium~=4.7.2
+selenium
 Pillow~=9.3.0
 discord.py
 gitpython
 pandas~=2.0.2
 requests~=2.31.0
+drawsvg[all]~=2.0

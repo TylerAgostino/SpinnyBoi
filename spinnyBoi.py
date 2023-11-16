@@ -18,7 +18,7 @@ class MyClient(discord.Client):
             return
 
         if str(message.content).lower().startswith('/spin'):
-            bot_response = await message.channel.send('Spinning...')
+            bot_response = await message.channel.send('Working on it. Go easy on me, I\'m still in beta.')
             try:
                 command_with_args = str(message.content).lower().removeprefix('/spin').strip(' ')
                 command = command_with_args.split(' ')[0]

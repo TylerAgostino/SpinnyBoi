@@ -88,58 +88,55 @@ class CommandHandler:
         filter_queries = []
         weighting = None
         for filter in filters:
-            try:
-                if filter.find('|') > 0:
-                    or_query = []
-                    for option in filter.split('|'):
-                        if option.find('<>') > 0:
-                            a = option.split('<>')
-                            or_query.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                        elif option.find('>=') > 0:
-                            a = option.split('>=')
-                            or_query.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-                        elif option.find('<=') > 0:
-                            a = option.split('<=')
-                            or_query.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-                        elif option.find('<') > 0:
-                            a = option.split('<')
-                            or_query.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-                        elif option.find('>') > 0:
-                            a = option.split('>')
-                            or_query.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-                        elif option.find(':') > 0:
-                            a = option.split(':')
-                            or_query.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                        elif option.find('=') > 0:
-                            a = option.split('=')
-                            or_query.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
-                    filter_queries.append(" | ".join(or_query))
-                else:
-                    if filter.find('!weight=') > 0:
-                        weighting = filter.split('=')[1]
-                    elif filter.find('<>') > 0:
-                        a = filter.split('<>')
-                        filter_queries.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                    elif filter.find('>=') > 0:
-                        a = filter.split('>=')
-                        filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-                    elif filter.find('<=') > 0:
-                        a = filter.split('<=')
-                        filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-                    elif filter.find('<') > 0:
-                        a = filter.split('<')
-                        filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-                    elif filter.find('>') > 0:
-                        a = filter.split('>')
-                        filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-                    elif filter.find(':') > 0:
-                        a = filter.split(':')
-                        filter_queries.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
-                    elif filter.find('=') > 0:
-                        a = filter.split('=')
-                        filter_queries.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
-            except Exception as e:
-                print(str(e))
+            if filter.find('|') > 0:
+                or_query = []
+                for option in filter.split('|'):
+                    if option.find('<>') > 0:
+                        a = option.split('<>')
+                        or_query.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                    elif option.find('>=') > 0:
+                        a = option.split('>=')
+                        or_query.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
+                    elif option.find('<=') > 0:
+                        a = option.split('<=')
+                        or_query.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
+                    elif option.find('<') > 0:
+                        a = option.split('<')
+                        or_query.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
+                    elif option.find('>') > 0:
+                        a = option.split('>')
+                        or_query.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
+                    elif option.find(':') > 0:
+                        a = option.split(':')
+                        or_query.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                    elif option.find('=') > 0:
+                        a = option.split('=')
+                        or_query.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
+                filter_queries.append(" | ".join(or_query))
+            else:
+                if filter.find('!weight=') > 0:
+                    weighting = filter.split('=')[1]
+                elif filter.find('<>') > 0:
+                    a = filter.split('<>')
+                    filter_queries.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                elif filter.find('>=') > 0:
+                    a = filter.split('>=')
+                    filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
+                elif filter.find('<=') > 0:
+                    a = filter.split('<=')
+                    filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
+                elif filter.find('<') > 0:
+                    a = filter.split('<')
+                    filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
+                elif filter.find('>') > 0:
+                    a = filter.split('>')
+                    filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
+                elif filter.find(':') > 0:
+                    a = filter.split(':')
+                    filter_queries.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                elif filter.find('=') > 0:
+                    a = filter.split('=')
+                    filter_queries.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
 
         filtereddf = df
         for query_string in filter_queries:

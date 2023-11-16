@@ -146,9 +146,43 @@ class WheelSpinner:
         return slice
 
     def get_winner_box(self):
+        def add_line_breaks(text, soft_wrap=30):
+            # a new string of words from the text until we reach the soft_wrap limit, only adding whole words
+            new_text = ''
+            current_line = ''
+            longest_line = 0
+            for word in text.split(' '):
+                if len(current_line) + len(word) > soft_wrap:
+                    if len(current_line) > longest_line:
+                        longest_line = len(current_line)
+                    new_text += current_line + '\n'
+                    current_line = ''
+                current_line += word + ' '
+            if len(current_line) > longest_line:
+                longest_line = len(current_line)
+            new_text += current_line
+            return new_text, longest_line
+
+        def get_font_size(text, longest_line, max_width, max_height):
+            font_size = 1
+            while True:
+                width = longest_line*0.4*font_size
+                height = (1+str(text).count('\n'))*font_size*1.2
+                if width <= max_width and height <= max_height:
+                    font_size += 1
+                else:
+                    font_size -= 1
+                    return font_size
+
         box = draw.Group(opacity=0)
         box.append(draw.Rectangle(-50, -20, 100, 40, fill='white', stroke='black', stroke_width=1))
-        box.append(draw.Text(self.weighted_options[0][0], 10, 0, 0, text_anchor='middle', center=True, fill='black'))
+
+        text = self.weighted_options[0][0]
+        text, max_length = add_line_breaks(text)
+        font_size = get_font_size(text, max_length, 100, 40)
+
+
+        box.append(draw.Text(text, font_size, 0, 0, text_anchor='middle', center=True, fill='black'))
         box.append(draw.Animate('opacity', 3, from_or_values='0; 0; 0; 0; 0; 0; 0; 0; 100', key_times='0; 0.1; 0.2; 0.3; 0.4; 0.5 ; 0.8 ; 1', repeat_count='1', fill='freeze'))
         return box
 

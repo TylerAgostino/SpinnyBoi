@@ -14,7 +14,7 @@ class WheelSpinner:
         if options is None:
             options = ['Never', 'Gonna', 'Give', 'You', 'Up', 'Never', 'Gonna', 'Let', 'You', 'Down']
 
-        self.weighted_options = []
+        self.weighted_options: list[tuple[str, int]] = []
         self.repeated_options = []
         for option in options:
             # if it's a tuple, it's a weighted option
@@ -56,7 +56,7 @@ class WheelSpinner:
             self.animation.save_html(f'{run_id}/wheel.html')
             driver.get(f'file://{run_id}/wheel.html')
             frames = []
-            for i in range(150):
+            for i in range(80):
                 driver.get_screenshot_as_file(f"{run_id}/{i}.png")
                 f = Image.open(f"{run_id}/{i}.png")
                 f.info['duration'] = 0.1
@@ -74,29 +74,38 @@ class WheelSpinner:
         return fh
 
     def generate_animation(self):
+        # 1 in 30 chance of comic sans
+        if random.randint(0, 0) == 0:
+            font = 'Comic Sans MS'
+        else:
+            font = 'Shantell Sans'
         d = draw.Drawing(200, 200, origin='center', animation_config=draw.types.SyncedAnimationConfig(
             # Animation configuration
-            duration=3,  # Seconds
-            show_playback_progress=False,
-            show_playback_controls=False,
+            duration=2,  # Seconds
+            show_playback_progress=True,
+            show_playback_controls=True,
             pause_on_load=False,
-            repeat_count=1))
+            repeat_count=1),
+                         font_family=font)
+
         wheel = self.get_wheel()
-        start_pos = random.randint(3000, 5000)
-        # end_pos = 180/len(self.weighted_options)
-        # end_pos = 0
+        start_pos = random.randint(360, 400)
         end_pos = self.weighted_options[0][1]/sum([weight for option, weight in self.weighted_options])*180
         diff = start_pos - end_pos
+
+        # define keyframes for a natural deceleration
+        positions = [start_pos, start_pos, end_pos+180, end_pos+90, end_pos+65, end_pos+40, end_pos+30, end_pos+20, end_pos+15, end_pos+10, end_pos+5, end_pos+2.5, end_pos]
+        key_times = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
 
 
 
         wheel.append_anim(draw.AnimateTransform('rotate',
-                                                2,
+                                                1,
                                                 repeat_count='1',
                                                 fill='freeze',
                                                 calc_mode='linear',
-                                                from_or_values=f'{start_pos}; {start_pos}; {0.6*diff}; {0.3*diff}; {0.1*diff} ; {0.05*diff}; {end_pos}; {end_pos}',
-                                                key_times='0; 0.1; 0.2; 0.3; 0.4; 0.5 ; 0.6 ; 1',
+                                                from_or_values=';'.join([str(x) for x in positions]),
+                                                key_times=';'.join([str(x) for x in key_times]),
 
                                                 )
                           )
@@ -129,7 +138,7 @@ class WheelSpinner:
         if color is None:
             color = f'hsl({random.randint(0, 360)}, {random.randint(30, 100)}%, {random.randint(30, 100)}%)'
 
-        font_size = (85)/len(option)
+        font_size = (150)/len(option)
         slice_angle = end_degree-start_degree
         max_height = 2*30*(1-math.cos(math.radians(slice_angle/2)))
 
@@ -146,7 +155,7 @@ class WheelSpinner:
         return slice
 
     def get_winner_box(self):
-        def add_line_breaks(text, soft_wrap=30):
+        def add_line_breaks(text, soft_wrap=20):
             # a new string of words from the text until we reach the soft_wrap limit, only adding whole words
             new_text = ''
             current_line = ''
@@ -166,7 +175,7 @@ class WheelSpinner:
         def get_font_size(text, longest_line, max_width, max_height):
             font_size = 1
             while True:
-                width = longest_line*0.4*font_size
+                width = longest_line*0.5*font_size
                 height = (1+str(text).count('\n'))*font_size*1.2
                 if width <= max_width and height <= max_height:
                     font_size += 1
@@ -175,15 +184,13 @@ class WheelSpinner:
                     return font_size
 
         box = draw.Group(opacity=0)
-        box.append(draw.Rectangle(-50, -20, 100, 40, fill='white', stroke='black', stroke_width=1))
+        box.append(draw.Rectangle(-60, -25, 120, 50, fill='white', stroke='black', stroke_width=1, opacity=0.8))
 
         text = self.weighted_options[0][0]
         text, max_length = add_line_breaks(text)
         font_size = get_font_size(text, max_length, 100, 40)
-
-
         box.append(draw.Text(text, font_size, 0, 0, text_anchor='middle', center=True, fill='black'))
-        box.append(draw.Animate('opacity', 3, from_or_values='0; 0; 0; 0; 0; 0; 0; 0; 100', key_times='0; 0.1; 0.2; 0.3; 0.4; 0.5 ; 0.8 ; 1', repeat_count='1', fill='freeze'))
+        box.append(draw.Animate('opacity', 2, from_or_values='0; 0; 0; 0; 0; 0; 0; 0; 100', key_times='0; 0.1; 0.2; 0.3; 0.4; 0.5 ; 0.8 ; 1', repeat_count='1', fill='freeze'))
         return box
 
     def shuffle(self):

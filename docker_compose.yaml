@@ -1,13 +1,5 @@
 version: "3.9"
 services:
-  selenium:
-    image: selenium/standalone-chrome
-    restart: always
-    ports:
-      - 4444:4444
-    environment:
-      - SE_NODE_SESSION_TIMEOUT=45
-      - SE_NODE_MAX_SESSIONS=3
   spinnyboi:
     image: tyleragostino/spinnyboi:latest
     restart: always

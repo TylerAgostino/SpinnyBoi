@@ -82,8 +82,8 @@ class WheelSpinner:
         d = draw.Drawing(200, 200, origin='center', animation_config=draw.types.SyncedAnimationConfig(
             # Animation configuration
             duration=2,  # Seconds
-            show_playback_progress=True,
-            show_playback_controls=True,
+            show_playback_progress=False,
+            show_playback_controls=False,
             pause_on_load=False,
             repeat_count=1),
                          font_family=font)

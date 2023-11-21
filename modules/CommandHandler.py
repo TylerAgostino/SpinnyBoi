@@ -7,6 +7,7 @@ from selenium import webdriver
 import typing  # For type hinting
 import functools
 import asyncio
+import random
 
 
 def to_thread(func: typing.Callable) -> typing.Coroutine:
@@ -44,7 +45,7 @@ class CommandHandler:
                 self.response_attachment = [discord.File(output[1], filename='wheel.gif')]
         else:
             self.response_text = output
-            self.response_attachment = None
+            self.response_attachment = []
         logging.info('Done spinning')
         return self.response_text, self.response_attachment
 
@@ -62,18 +63,25 @@ class CommandHandler:
 
     @staticmethod
     def fo():
-        return """Testing the spinfo command"""
+        return """*SpinnyBoi*
+        `/spin` - Spins the default wheel for The Beer League
+        `/spin custom A,B,C` - Spins a wheel with the options A, B, and C
+        `/spin preset <preset_name>` - Spins a wheel with the options from the preset <preset_name>. 
+        `/spin <tab> <filter>` - Spins a wheel with the options from the tab <tab> filtered by <filter>
+        You can use `<`, `>`, `<=`, `>=`, `=`, and `<>` to filter numeric columns, or `<>` (not equal), `:` (contains), and `=` (exactly equal) to filter text columns. Use `|` to give an OR condition. Use `!weight=<column_name>` to weight the options by the values in <column_name>.
+        Presets, tabs, and their columns and values are defined in the GSheet. If you don't know where that is, ask an admin, like Koffard. 
+        """
 
     def tester(self):
         wheel = WheelSpinner.WheelSpinner()
         file = wheel.return_gif(self.driver)
-        return "Here's your file", file
+        return self.get_message(), file
 
     def custom(self, options):
         opts_list = [opt for opt in options.split(',')]
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(self.driver)
-        return "Here's your file", file
+        return self.get_message(), file
 
     def preset(self, preset_name):
         filters_df = self.presets_df.query(f"Fullname.str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
@@ -86,7 +94,7 @@ class CommandHandler:
         gifs = []
         for wheel in wheels:
             gifs.append(wheel.return_gif(self.driver))
-        return "Here's your file", gifs
+        return self.get_message(), gifs
 
     def generate_option_set(self, tab, filter_string=''):
         df = pd.read_csv(self.ghseet_url(tab))
@@ -160,4 +168,12 @@ class CommandHandler:
         opt_set = self.generate_option_set(tab, filter_string)
         wheel = WheelSpinner.WheelSpinner(opt_set[0])
         gif = wheel.return_gif(self.driver)
-        return "Here's your file", gif
+        return self.get_message(), gif
+
+    @staticmethod
+    def get_message(messages_file='messages.txt'):
+        roll = random.random()
+        fp = open(messages_file)
+        messages = [message for message in fp.readlines()]
+        lines = len(messages)
+        return messages[int(int(roll * 100) % lines)]

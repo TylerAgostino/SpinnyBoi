@@ -1,12 +1,13 @@
 import io
 import os
 import uuid
-from selenium import webdriver
 import drawsvg as draw
 import random
 import math
 from PIL import Image
 import shutil
+import logging
+
 
 class WheelSpinner:
     def __init__(self, options: list = None):
@@ -42,40 +43,53 @@ class WheelSpinner:
         self.colors_set = (self.colors_set + 1) % len(colors)
         return colors[self.colors_set]
 
-    def return_gif(self):
+    def return_gif(self, driver=None):
+        logging.info('Generating gif')
         # create a directory with a unique name
         # generate a uuid for the directory name
         run_id = f'{os.getcwd()}/{str(uuid.uuid4())[0:8]}'
         os.makedirs(run_id)
         try:
-            options = webdriver.FirefoxOptions()
-            options.add_argument('--headless')
-            options.add_argument("--height=1100")
-            options.add_argument("--width=1000")
-            driver = webdriver.Firefox(options=options)
+            if driver is None:
+                from selenium import webdriver
+                logging.info('No browser provided, starting a new one')
+                options = webdriver.FirefoxOptions()
+                options.add_argument('--headless')
+                options.add_argument("--height=1100")
+                options.add_argument("--width=1000")
+                driver = webdriver.Firefox(options=options)
+
+            logging.info('Saving html')
             self.animation.save_html(f'{run_id}/wheel.html')
+
+            logging.info('Loading html')
             driver.get(f'file://{run_id}/wheel.html')
+
+            logging.info('Taking screenshots')
             frames = []
-            for i in range(80):
+            for i in range(90):
                 driver.get_screenshot_as_file(f"{run_id}/{i}.png")
                 f = Image.open(f"{run_id}/{i}.png")
                 f.info['duration'] = 0.1
                 frames.append(f)
 
-            # Close the browser
-            driver.close()
-            driver.quit()
+            # logging.info('Cleaning up')
+            # # Close the browser
+            # driver.close()
+            # driver.quit()
 
+            logging.info('Saving gif')
             fh = io.BytesIO()
             frames[0].save(fh, format='GIF', append_images=frames[1:], save_all=True, duration=50, optimize=False, loop=1)
             fh.seek(0)
         finally:
             shutil.rmtree(run_id)
+        logging.info('Done generating gif')
         return fh
 
     def generate_animation(self):
         # 1 in 30 chance of comic sans
-        if random.randint(0, 0) == 0:
+        if random.randint(0, 30) == 0:
             font = 'Comic Sans MS'
         else:
             font = 'Shantell Sans'

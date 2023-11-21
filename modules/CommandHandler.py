@@ -2,7 +2,8 @@ import os
 import pandas as pd
 from modules import WheelSpinner
 import discord
-
+import logging
+from selenium import webdriver
 import typing  # For type hinting
 import functools
 import asyncio
@@ -20,9 +21,17 @@ class CommandHandler:
     def __init__(self):
         self.ghseet_url = lambda x: f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}/gviz/tq?tqx=out:csv&sheet={x}'
         self.presets_df = pd.read_csv(self.ghseet_url('presets'))
+        options = webdriver.FirefoxOptions()
+        options.add_argument('--headless')
+        options.add_argument("--height=1100")
+        options.add_argument("--width=1000")
+
+        logging.info('Starting browser')
+        self.driver = webdriver.Firefox(options=options)
         pass
 
     async def run_command(self, command, *args):
+        logging.info(f'Spinning {command} with args: {args}')
         if command == '':
             output = await self.handle('preset', 'DEFAULT')
         else:
@@ -36,6 +45,7 @@ class CommandHandler:
         else:
             self.response_text = output
             self.response_attachment = None
+        logging.info('Done spinning')
         return self.response_text, self.response_attachment
 
     @to_thread
@@ -54,17 +64,15 @@ class CommandHandler:
     def fo():
         return """Testing the spinfo command"""
 
-    @staticmethod
-    def tester():
+    def tester(self):
         wheel = WheelSpinner.WheelSpinner()
-        file = wheel.return_gif()
+        file = wheel.return_gif(self.driver)
         return "Here's your file", file
 
-    @staticmethod
-    def custom(options):
+    def custom(self, options):
         opts_list = [opt for opt in options.split(',')]
         wheel = WheelSpinner.WheelSpinner(opts_list)
-        file = wheel.return_gif()
+        file = wheel.return_gif(self.driver)
         return "Here's your file", file
 
     def preset(self, preset_name):
@@ -77,7 +85,7 @@ class CommandHandler:
                 wheels.append(WheelSpinner.WheelSpinner(opt_set[0]))
         gifs = []
         for wheel in wheels:
-            gifs.append(wheel.return_gif())
+            gifs.append(wheel.return_gif(self.driver))
         return "Here's your file", gifs
 
     def generate_option_set(self, tab, filter_string=''):
@@ -151,5 +159,5 @@ class CommandHandler:
     def spin_single_sheet(self, tab, filter_string=''):
         opt_set = self.generate_option_set(tab, filter_string)
         wheel = WheelSpinner.WheelSpinner(opt_set[0])
-        gif = wheel.return_gif()
+        gif = wheel.return_gif(self.driver)
         return "Here's your file", gif

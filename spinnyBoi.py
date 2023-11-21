@@ -1,9 +1,11 @@
 import os
-import sys
 import discord
+import logging
 from modules import CommandHandler
 
 status_message = "/spin"
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
 
 
 class MyClient(discord.Client):

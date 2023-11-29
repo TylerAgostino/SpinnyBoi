@@ -56,7 +56,7 @@ class CommandHandler:
             return command(*args, **kwargs)
         except Exception as e:
             try:
-                return self.spin_single_sheet(command)
+                return self.spin_single_sheet(command, *args, **kwargs)
             except Exception as e:
                 print(str(e))
                 return "I don't know that command"

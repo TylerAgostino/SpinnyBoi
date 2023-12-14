@@ -84,7 +84,7 @@ class CommandHandler:
         return self.get_message(), file
 
     def preset(self, preset_name):
-        filters_df = self.presets_df.query(f"Fullname.str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
+        filters_df = self.presets_df.query(f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
         wheels = []
         for tab in filters_df.keys():
             if isinstance(filters_df[tab], str) and tab != 'Fullname':
@@ -109,7 +109,7 @@ class CommandHandler:
                 for option in filter.split('|'):
                     if option.find('<>') > 0:
                         a = option.split('<>')
-                        or_query.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                        or_query.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
                     elif option.find('>=') > 0:
                         a = option.split('>=')
                         or_query.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
@@ -124,17 +124,17 @@ class CommandHandler:
                         or_query.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
                     elif option.find(':') > 0:
                         a = option.split(':')
-                        or_query.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                        or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
                     elif option.find('=') > 0:
                         a = option.split('=')
-                        or_query.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
+                        or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
                 filter_queries.append(" | ".join(or_query))
             else:
                 if filter.find('!weight=') > 0:
                     weighting = filter.split('=')[1]
                 elif filter.find('<>') > 0:
                     a = filter.split('<>')
-                    filter_queries.append(f"not `{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                    filter_queries.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
                 elif filter.find('>=') > 0:
                     a = filter.split('>=')
                     filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
@@ -149,10 +149,10 @@ class CommandHandler:
                     filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
                 elif filter.find(':') > 0:
                     a = filter.split(':')
-                    filter_queries.append(f"`{a[0].strip(' ')}`.str.lower().str.contains('{a[1].strip(' ')}')")
+                    filter_queries.append(f"`{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
                 elif filter.find('=') > 0:
                     a = filter.split('=')
-                    filter_queries.append(f"`{a[0].strip(' ')}`.str.lower()=='{a[1].strip(' ')}'")
+                    filter_queries.append(f"`{str(a[0].strip(' '))}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
 
         filtereddf = df
         for query_string in filter_queries:

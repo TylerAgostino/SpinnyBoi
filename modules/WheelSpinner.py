@@ -11,7 +11,8 @@ import logging
 
 class WheelSpinner:
     def __init__(self, options: list = None):
-        self.colors_set = -1
+        self.colors = ['#F7B71D', '#263F1A', '#F3E59E', '#AFA939']
+        self.colors_set = random.randint(0, len(self.colors)-1)
         if options is None:
             options = ['Never', 'Gonna', 'Give', 'You', 'Up', 'Never', 'Gonna', 'Let', 'You', 'Down']
 
@@ -39,9 +40,8 @@ class WheelSpinner:
         return animation.as_svg()
 
     def get_color(self):
-        colors = ['#F7B71D', '#263F1A', '#F3E59E', '#AFA939']
-        self.colors_set = (self.colors_set + 1) % len(colors)
-        return colors[self.colors_set]
+        self.colors_set = (self.colors_set + 1) % len(self.colors)
+        return self.colors[self.colors_set]
 
     def return_gif(self, driver=None):
         logging.info('Generating gif')

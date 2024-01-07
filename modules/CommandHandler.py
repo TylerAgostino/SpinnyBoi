@@ -90,7 +90,19 @@ class CommandHandler:
             if isinstance(filters_df[tab], str) and tab != 'Fullname':
                 filter_string = str(filters_df[tab]).lower()
                 opt_set = self.generate_option_set(tab, filter_string)
-                wheels.append(WheelSpinner.WheelSpinner(opt_set[0]))
+                wheel = WheelSpinner.WheelSpinner(opt_set)
+                wheels.append(wheel)
+                depth = 0
+                next_spin = wheel.next_spin
+                while next_spin is not None and depth < 10:
+                    next_tab, next_filter_string = next_spin
+                    next_opt_set = self.generate_option_set(next_tab, next_filter_string)
+                    next_wheel = WheelSpinner.WheelSpinner(next_opt_set)
+                    wheels.append(next_wheel)
+                    next_spin = next_wheel.next_spin
+                    depth += 1
+                    pass
+
         gifs = []
         for wheel in wheels:
             gifs.append(wheel.return_gif(self.driver))
@@ -99,10 +111,11 @@ class CommandHandler:
     def generate_option_set(self, tab, filter_string=''):
         df = pd.read_csv(self.ghseet_url(tab))
         df.columns = df.columns.str.lower()
-        filter_string = filter_string.strip(' ')
+        filter_string = filter_string.strip(' ').lower()
         filters = filter_string.split(',')
         filter_queries = []
         weighting = None
+        on_select = None
         for filter in filters:
             if filter.find('|') > 0:
                 or_query = []
@@ -130,8 +143,10 @@ class CommandHandler:
                         or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
                 filter_queries.append(" | ".join(or_query))
             else:
-                if filter.find('!weight=') > 0:
+                if filter.find('!weight=') >= 0:
                     weighting = filter.split('=')[1]
+                elif filter.find('!onselect=') >= 0:
+                    on_select = filter.split('=')[1]
                 elif filter.find('<>') > 0:
                     a = filter.split('<>')
                     filter_queries.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
@@ -159,14 +174,20 @@ class CommandHandler:
             filtereddf = filtereddf.query(query_string)
         selections = filtereddf.to_dict('records')
         if weighting is None:
-            option_set = [[(selection['fullname'], 1) for selection in selections]]
-        else:
-            option_set = [[(selection['fullname'], int(selection[weighting])) for selection in selections]]
+            for selection in selections:
+                selection['nullweight'] = 1
+                weighting = 'nullweight'
+        if on_select is None:
+            for selection in selections:
+                selection['nullonSelect'] = None
+                on_select = 'nullonSelect'
+
+        option_set = [(selection['fullname'], int(selection[weighting]), selection[on_select]) for selection in selections]
         return option_set
 
     def spin_single_sheet(self, tab, filter_string=''):
         opt_set = self.generate_option_set(tab, filter_string)
-        wheel = WheelSpinner.WheelSpinner(opt_set[0])
+        wheel = WheelSpinner.WheelSpinner(opt_set)
         gif = wheel.return_gif(self.driver)
         return self.get_message(), gif
 

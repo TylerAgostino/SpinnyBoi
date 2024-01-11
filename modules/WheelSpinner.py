@@ -25,8 +25,8 @@ class WheelSpinner:
                 for i in range(option[1]):
                     self.repeated_options.append(option)
             else:
-                self.weighted_options.append((option, 1))
-                self.repeated_options.append((option, 1))
+                self.weighted_options.append((option, 1, None))
+                self.repeated_options.append((option, 1, None))
         self.shuffle()
         next_spin = self.repeated_options[0][2]
         if next_spin is None or not isinstance(next_spin, str):

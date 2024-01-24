@@ -1,3 +1,4 @@
+import io
 import os
 import pandas as pd
 from modules import WheelSpinner
@@ -8,6 +9,7 @@ import typing  # For type hinting
 import functools
 import asyncio
 import random
+import webuiapi
 
 
 def to_thread(func: typing.Callable) -> typing.Coroutine:
@@ -39,10 +41,14 @@ class CommandHandler:
             output = await self.handle(command, *args)
         if isinstance(output, tuple):
             self.response_text = output[0]
+            try:
+                filename = output[2]
+            except IndexError:
+                filename = 'wheel.gif'
             if isinstance(output[1], list):
-                self.response_attachment = [discord.File(gif, filename='wheel.gif') for gif in output[1]]
+                self.response_attachment = [discord.File(gif, filename=filename) for gif in output[1]]
             else:
-                self.response_attachment = [discord.File(output[1], filename='wheel.gif')]
+                self.response_attachment = [discord.File(output[1], filename=filename)]
         else:
             self.response_text = output
             self.response_attachment = []
@@ -82,6 +88,17 @@ class CommandHandler:
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(self.driver)
         return self.get_message(), file
+
+    def stablediffusion(self, prompt):
+        client = webuiapi.WebUIApi(host='192.168.1.125')
+
+        result1 = client.txt2img(prompt=prompt,
+                                 cfg_scale=7
+                                 )
+        fh = io.BytesIO()
+        result1.image.save(fh, format="PNG")
+        fh.seek(0)
+        return prompt, [fh], 'stablediffusion.png'
 
     def preset(self, preset_name):
         filters_df = self.presets_df.query(f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'").to_dict('records')[0]

@@ -20,9 +20,16 @@ def to_thread(func: typing.Callable) -> typing.Coroutine:
     return wrapper
 
 
+class NoTabError(Exception):
+    pass
+
+
 class CommandHandler:
     def __init__(self):
-        self.ghseet_url = lambda x: f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}/gviz/tq?tqx=out:csv&sheet={x}'
+        base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
+
+        self.ghseet_url = lambda x: f'{base_url}/gviz/tq?tqx=out:csv&sheet={x}'
+
         self.presets_df = pd.read_csv(self.ghseet_url('presets'))
         options = webdriver.FirefoxOptions()
         options.add_argument('--headless')
@@ -60,12 +67,16 @@ class CommandHandler:
         try:
             command = getattr(self, command)
             return command(*args, **kwargs)
-        except Exception as e:
+        except AttributeError as e:
             try:
                 return self.spin_single_sheet(command, *args, **kwargs)
-            except Exception as e:
-                print(str(e))
-                return "I don't know that command"
+            except NoTabError as e:
+                logging.warning(f'No tab found: {str(e)}')
+                return f"I don't have a command called {command}, and there's no tab in the gsheet with that name."
+        except Exception as e:
+            logging.debug(f'Command {command} failed with args {" ".join(*args)}: {str(e)}')
+            logging.error(e)
+            return "You're using a valid command, but something went wrong."
 
     @staticmethod
     def fo():
@@ -101,12 +112,20 @@ class CommandHandler:
         return prompt, [fh], 'stablediffusion.png'
 
     def preset(self, preset_name):
-        filters_df = self.presets_df.query(f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
+        try:
+            filters_df = self.presets_df.query(f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
+        except IndexError:
+            return f"I can't find a preset named {preset_name}."
         wheels = []
         for tab in filters_df.keys():
             if isinstance(filters_df[tab], str) and tab != 'Fullname':
                 filter_string = str(filters_df[tab]).lower()
-                opt_set = self.generate_option_set(tab, filter_string)
+                try:
+                    opt_set = self.generate_option_set(tab, filter_string)
+                except Exception as e:
+                    logging.error(f'Error processing tab {tab}, filter string {filter_string}: {str(e)}')
+                    return f"The preset {preset_name} ran into an error: {str(e)}"
+
                 wheel = WheelSpinner.WheelSpinner(opt_set)
                 wheels.append(wheel)
                 depth = 0
@@ -126,7 +145,16 @@ class CommandHandler:
         return self.get_message(), gifs
 
     def generate_option_set(self, tab, filter_string=''):
-        df = pd.read_csv(self.ghseet_url(tab))
+        try:
+            df = pd.read_csv(self.ghseet_url(tab))
+            if list(df.columns.values) == ['FALSE']:
+                raise NoTabError(f'Tab {tab} not found')
+            pass
+        except NoTabError as e:
+            raise e
+        except Exception as e:
+            logging.error(f'Error processing tab {tab}: {str(e)}')
+            raise e
         df.columns = df.columns.str.lower()
         filter_string = filter_string.strip(' ').lower()
         filters = filter_string.split(',')
@@ -134,61 +162,71 @@ class CommandHandler:
         weighting = None
         on_select = None
         for filter in filters:
-            if filter.find('|') > 0:
-                or_query = []
-                for option in filter.split('|'):
-                    if option.find('<>') > 0:
-                        a = option.split('<>')
-                        or_query.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
-                    elif option.find('>=') > 0:
-                        a = option.split('>=')
-                        or_query.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-                    elif option.find('<=') > 0:
-                        a = option.split('<=')
-                        or_query.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-                    elif option.find('<') > 0:
-                        a = option.split('<')
-                        or_query.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-                    elif option.find('>') > 0:
-                        a = option.split('>')
-                        or_query.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-                    elif option.find(':') > 0:
-                        a = option.split(':')
-                        or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
-                    elif option.find('=') > 0:
-                        a = option.split('=')
-                        or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
-                filter_queries.append(" | ".join(or_query))
-            else:
-                if filter.find('!weight=') >= 0:
-                    weighting = filter.split('=')[1]
-                elif filter.find('!onselect=') >= 0:
-                    on_select = filter.split('=')[1]
-                elif filter.find('<>') > 0:
-                    a = filter.split('<>')
-                    filter_queries.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
-                elif filter.find('>=') > 0:
-                    a = filter.split('>=')
-                    filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
-                elif filter.find('<=') > 0:
-                    a = filter.split('<=')
-                    filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
-                elif filter.find('<') > 0:
-                    a = filter.split('<')
-                    filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
-                elif filter.find('>') > 0:
-                    a = filter.split('>')
-                    filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
-                elif filter.find(':') > 0:
-                    a = filter.split(':')
-                    filter_queries.append(f"`{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
-                elif filter.find('=') > 0:
-                    a = filter.split('=')
-                    filter_queries.append(f"`{str(a[0].strip(' '))}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
+            try:
+                if filter.find('|') > 0:
+                    or_query = []
+                    for option in filter.split('|'):
+                        if option.find('<>') > 0:
+                            a = option.split('<>')
+                            or_query.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
+                        elif option.find('>=') > 0:
+                            a = option.split('>=')
+                            or_query.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
+                        elif option.find('<=') > 0:
+                            a = option.split('<=')
+                            or_query.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
+                        elif option.find('<') > 0:
+                            a = option.split('<')
+                            or_query.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
+                        elif option.find('>') > 0:
+                            a = option.split('>')
+                            or_query.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
+                        elif option.find(':') > 0:
+                            a = option.split(':')
+                            or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
+                        elif option.find('=') > 0:
+                            a = option.split('=')
+                            or_query.append(f"`{a[0].strip(' ')}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
+                    filter_queries.append(" | ".join(or_query))
+                else:
+                    if filter.find('!weight=') >= 0:
+                        weighting = filter.split('=')[1]
+                    elif filter.find('!onselect=') >= 0:
+                        on_select = filter.split('=')[1]
+                    elif filter.find('<>') > 0:
+                        a = filter.split('<>')
+                        filter_queries.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
+                    elif filter.find('>=') > 0:
+                        a = filter.split('>=')
+                        filter_queries.append(f"`{a[0].strip(' ')}`>={a[1].strip(' ')}")
+                    elif filter.find('<=') > 0:
+                        a = filter.split('<=')
+                        filter_queries.append(f"`{a[0].strip(' ')}`<={a[1].strip(' ')}")
+                    elif filter.find('<') > 0:
+                        a = filter.split('<')
+                        filter_queries.append(f"`{a[0].strip(' ')}`<{a[1].strip(' ')}")
+                    elif filter.find('>') > 0:
+                        a = filter.split('>')
+                        filter_queries.append(f"`{a[0].strip(' ')}`>{a[1].strip(' ')}")
+                    elif filter.find(':') > 0:
+                        a = filter.split(':')
+                        filter_queries.append(f"`{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
+                    elif filter.find('=') > 0:
+                        a = filter.split('=')
+                        filter_queries.append(f"`{str(a[0].strip(' '))}`.astype('string').str.lower()=='{a[1].strip(' ')}'")
+            except Exception as e:
+                logging.error(f'Error processing filter {filter}: {str(e)}')
+                raise Exception(f'One of your filters is not properly formatted') from e
 
         filtereddf = df
         for query_string in filter_queries:
-            filtereddf = filtereddf.query(query_string)
+            try:
+                filtereddf = filtereddf.query(query_string)
+            except Exception as e:
+                logging.error(f'Error processing filter {query_string}: {str(e)}')
+                raise Exception(f'Something is wrong with one of your filters.') from e
+        if filtereddf.empty:
+            raise Exception(f'Your filter {filter} returned no results')
         selections = filtereddf.to_dict('records')
         if weighting is None:
             for selection in selections:
@@ -203,7 +241,11 @@ class CommandHandler:
         return option_set
 
     def spin_single_sheet(self, tab, filter_string=''):
-        opt_set = self.generate_option_set(tab, filter_string)
+        try:
+            opt_set = self.generate_option_set(tab, filter_string)
+        except Exception as e:
+            logging.error(f"Error processing tab {tab}: {str(e)}")
+            return str(e)
         wheel = WheelSpinner.WheelSpinner(opt_set)
         gif = wheel.return_gif(self.driver)
         return self.get_message(), gif

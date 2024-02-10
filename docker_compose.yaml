@@ -6,3 +6,15 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - GSHEET_ID=${GSHEET_ID}
+  baserow:
+    container_name: baserow
+    image: baserow/baserow:1.22.3
+    environment:
+      BASEROW_PUBLIC_URL: 'https://baserow.portersparadise.com'
+    ports:
+      - "8180:80"
+      - "8143:443"
+    volumes:
+      - baserow_data:/baserow/data
+volumes:
+  baserow_data:

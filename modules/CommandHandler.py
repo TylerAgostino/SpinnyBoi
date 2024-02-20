@@ -60,6 +60,7 @@ class CommandHandler:
             self.response_text = output
             self.response_attachment = []
         logging.info('Done spinning')
+        self.driver.quit()
         return self.response_text, self.response_attachment
 
     @to_thread

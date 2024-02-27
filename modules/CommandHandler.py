@@ -79,16 +79,65 @@ class CommandHandler:
             logging.error(e)
             return "You're using a valid command, but something went wrong."
 
-    @staticmethod
-    def fo():
-        return """*SpinnyBoi*
-        `/spin` - Spins the default wheel for The Beer League
-        `/spin custom A,B,C` - Spins a wheel with the options A, B, and C
-        `/spin preset <preset_name>` - Spins a wheel with the options from the preset <preset_name>. 
-        `/spin <tab> <filter>` - Spins a wheel with the options from the tab <tab> filtered by <filter>
-        You can use `<`, `>`, `<=`, `>=`, `=`, and `<>` to filter numeric columns, or `<>` (not equal), `:` (contains), and `=` (exactly equal) to filter text columns. Use `|` to give an OR condition. Use `!weight=<column_name>` to weight the options by the values in <column_name>.
-        Presets, tabs, and their columns and values are defined in the GSheet. If you don't know where that is, ask an admin, like Koffard. 
-        """
+    def fo(self, *args):
+        # if no arguments are passed, return the help message
+        if not args:
+            return """*SpinnyBoi*
+            `/spin` - Spins the default wheel for The Beer League
+            `/spin custom A,B,C` - Spins a wheel with the options A, B, and C
+            `/spin preset <preset_name>` - Spins a wheel with the options from the preset <preset_name>. 
+            `/spin <tab> <filter>` - Spins a wheel with the options from the tab <tab> filtered by <filter>. Filter is optional.
+            `/spinfo` - Returns this help message
+            `/spinfo <preset> <tab>` - Returns the odds of each option for the given tab and preset. Both a tab and preset are required, and the tab must be used in the preset.
+            You can use `<`, `>`, `<=`, `>=`, `=`, and `<>` to filter numeric columns, or `<>` (not equal), `:` (contains), and `=` (exactly equal) to filter text columns. Use `|` to give an OR condition. Use `!weight=<column_name>` to weight the options by the values in <column_name>.
+            Presets, tabs, and their columns and values are defined in the GSheet. If you don't know where that is, ask an admin, like Koffard. 
+            """
+        else:
+            args = args[0].split(' ')
+            try:
+                preset_name = args[0]
+                tab_name = args[1]
+            except IndexError:
+                return "You need to provide a preset and a tab to get the odds for."
+            try:
+                filters_df = self.presets_df.query(f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
+            except IndexError:
+                return f"I can't find a preset named {preset_name}."
+
+            for tab in filters_df.keys():
+                if tab.lower() == tab_name.lower():
+                    tab_name = tab
+            filter_string = str(filters_df[tab_name]).lower()
+            try:
+                opt_set = self.generate_option_set(tab_name, filter_string)
+            except Exception as e:
+                logging.error(f'Error processing tab {tab_name}, filter string {filter_string}: {str(e)}')
+                return f"The preset {preset_name} ran into an error: {str(e)}"
+            options_df = pd.DataFrame(opt_set, columns=['Option', 'Weight', 'OnSelect'])
+            # Get the percentage of each option
+            total_weight = options_df['Weight'].sum()
+            options_df['Percentage'] = options_df['Weight'] / total_weight
+            outputdf = options_df[['Option', 'Percentage']]
+            outputdf = outputdf.sort_values(by='Percentage', ascending=False)
+            outputdf['Percentage'] = [f"{round(100 * p, 2)}%" for p in outputdf['Percentage'] ]
+            def format_string(s):
+                if len(s) < 23:
+                    return s
+                else:
+                    return s[0:10] + '...' + s[-10:]
+            outputdf['Option'] = [f"{format_string(o)}" for o in outputdf['Option'] ]
+            out_string = outputdf.to_string(index=False, max_colwidth=50, justify='left', header=False)
+            cropped_out_string = out_string[0:1900]
+            if cropped_out_string[-1] != '\n' and cropped_out_string[-1] != '%':
+                last_newline = cropped_out_string.rfind('\n')
+                cropped_out_string = cropped_out_string[0:last_newline]
+            if len(cropped_out_string) < len(out_string):
+                cropped_out_string = f"{cropped_out_string}\n..."
+            out_string = f"\n```{cropped_out_string}```"
+
+            return out_string
+
+
 
     def tester(self):
         wheel = WheelSpinner.WheelSpinner()

@@ -10,6 +10,8 @@ import functools
 import asyncio
 import random
 import webuiapi
+import dataframe_image as dfi
+import uuid
 
 
 def to_thread(func: typing.Callable) -> typing.Coroutine:
@@ -117,25 +119,32 @@ class CommandHandler:
             # Get the percentage of each option
             total_weight = options_df['Weight'].sum()
             options_df['Percentage'] = options_df['Weight'] / total_weight
+            # Get rid of extra columns
             outputdf = options_df[['Option', 'Percentage']]
+            # Get rid of options with 0% chance
+            outputdf = outputdf[outputdf['Percentage'] > 0]
+            # Sort by percentage
             outputdf = outputdf.sort_values(by='Percentage', ascending=False)
+            # Format the percentages
             outputdf['Percentage'] = [f"{round(100 * p, 2)}%" for p in outputdf['Percentage'] ]
-            def format_string(s):
-                if len(s) < 23:
-                    return s
-                else:
-                    return s[0:10] + '...' + s[-10:]
-            outputdf['Option'] = [f"{format_string(o)}" for o in outputdf['Option'] ]
-            out_string = outputdf.to_string(index=False, max_colwidth=50, justify='left', header=False)
-            cropped_out_string = out_string[0:1900]
-            if cropped_out_string[-1] != '\n' and cropped_out_string[-1] != '%':
-                last_newline = cropped_out_string.rfind('\n')
-                cropped_out_string = cropped_out_string[0:last_newline]
-            if len(cropped_out_string) < len(out_string):
-                cropped_out_string = f"{cropped_out_string}\n..."
-            out_string = f"\n```{cropped_out_string}```"
-
-            return out_string
+            # Reset the index
+            outputdf = outputdf.reset_index(drop=True)
+            # Make the index 1-based
+            outputdf.index = outputdf.index + 1
+            # Get a unique filename
+            run_id = f'{os.getcwd()}/{str(uuid.uuid4())[0:8]}.png'
+            # Export the dataframe to a series of images
+            rows = len(outputdf)
+            images = []
+            if rows > 30:
+                for i in range(0, rows, 30):
+                    dfi.export(outputdf[i:i+30], run_id, max_rows=-1, dpi=100, fontsize=20)
+                    fh = io.BytesIO()
+                    fh.write(open(run_id, 'rb').read())
+                    fh.seek(0)
+                    os.remove(run_id)
+                    images.append(fh)
+            return "", images, 'odds.png'
 
 
 

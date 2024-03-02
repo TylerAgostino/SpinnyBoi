@@ -7,3 +7,4 @@ pandas~=2.0.2
 requests~=2.31.0
 drawsvg[all]~=2.0
 webuiapi
+dataframe_image

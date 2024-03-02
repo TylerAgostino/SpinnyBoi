@@ -136,14 +136,13 @@ class CommandHandler:
             # Export the dataframe to a series of images
             rows = len(outputdf)
             images = []
-            if rows > 30:
-                for i in range(0, rows, 30):
-                    dfi.export(outputdf[i:i+30], run_id, max_rows=-1, dpi=100, fontsize=20, table_conversion='matplotlib')
-                    fh = io.BytesIO()
-                    fh.write(open(run_id, 'rb').read())
-                    fh.seek(0)
-                    os.remove(run_id)
-                    images.append(fh)
+            for i in range(0, rows, 30):
+                dfi.export(outputdf[i:i+30], run_id, max_rows=-1, dpi=100, fontsize=20, table_conversion='matplotlib')
+                fh = io.BytesIO()
+                fh.write(open(run_id, 'rb').read())
+                fh.seek(0)
+                os.remove(run_id)
+                images.append(fh)
             return "", images, 'odds.png'
 
 

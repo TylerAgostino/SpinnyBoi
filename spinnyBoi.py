@@ -36,6 +36,10 @@ class MyClient(discord.Client):
                 await bot_response.edit(content="Something went wrong.")
             return
 
+        if str(message.content).lower().find('spin') != -1 or str(message.content).lower().find('wheel') != -1:
+            await message.add_reaction("<a:wheel:1096138684786544883>")
+            return
+
 
 def main():
     intents = discord.Intents.default()

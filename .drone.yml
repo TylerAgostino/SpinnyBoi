@@ -3,21 +3,6 @@ name: default
 type: docker
 
 steps:
-#  - name: pull
-#    image: python:3.9
-#  - name: push-dev
-#    image: plugins/docker
-#    settings:
-#      username:
-#        from_secret: docker_username
-#      password:
-#        from_secret: docker_password
-#      registry: registry.hub.docker.com
-#      repo: registry.hub.docker.com/tyleragostino/spinnyboi
-#      tags: dev
-#    when:
-#      branch:
-#        - dev
   - name: push-main
     image: plugins/docker
     settings:
@@ -32,7 +17,13 @@ steps:
     when:
       branch:
         - main
+  - name: deploy
+    steps:
+      - name: send
+        image: plugins/webhook
+        settings:
+          urls: http://192.168.1.125:9996/api/stacks/webhooks/81cacdd6-d5ef-45cd-9983-cd3ff1f1058b
+
 trigger:
   ref:
     - refs/heads/main
-    - refs/heads/dev

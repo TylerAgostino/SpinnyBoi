@@ -7,6 +7,16 @@ status_message = "/spin"
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p')
 
+# Reactions
+
+reactions_file = open('reactions.txt', 'r')
+reactions = reactions_file.readlines()
+reaction_dict = {}
+for reaction in reactions:
+    tup = reaction.split(',')
+    reaction_dict[tup[0]] = tup[1].strip()
+reactions_file.close()
+
 
 class MyClient(discord.Client):
     async def on_ready(self):
@@ -36,8 +46,12 @@ class MyClient(discord.Client):
                 await bot_response.edit(content="Something went wrong.")
             return
 
+        for key in reaction_dict.keys():
+            if str(message.content).lower().find(key) != -1:
+                await message.add_reaction(reaction_dict[key])
+                return
         if str(message.content).lower().find('spin') != -1 or str(message.content).lower().find('wheel') != -1:
-            await message.add_reaction("<a:wheel:1096138684786544883>")
+            await message.add_reaction("")
             return
 
 

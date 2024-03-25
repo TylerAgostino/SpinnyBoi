@@ -10,25 +10,17 @@ import logging
 
 
 class WheelSpinner:
-    def __init__(self, options: list = None):
+    def __init__(self, options):
         self.colors = ['#F7B71D', '#263F1A', '#F3E59E', '#AFA939']
         self.colors_set = random.randint(0, len(self.colors)-1)
-        if options is None:
-            options = ['Never', 'Gonna', 'Give', 'You', 'Up', 'Never', 'Gonna', 'Let', 'You', 'Down']
 
-        self.weighted_options: list[tuple[str, int]] = []
+        self.weighted_options = options
         self.repeated_options = []
         for option in options:
-            # if it's a tuple, it's a weighted option
-            if isinstance(option, tuple):
-                self.weighted_options.append(option)
-                for i in range(option[1]):
-                    self.repeated_options.append(option)
-            else:
-                self.weighted_options.append((option, 1, None))
-                self.repeated_options.append((option, 1, None))
+            for i in range(option.weight):
+                self.repeated_options.append(option)
         self.shuffle()
-        next_spin = self.repeated_options[0][2]
+        next_spin = self.repeated_options[0].on_select
         if next_spin is None or not isinstance(next_spin, str):
             self.next_spin = None
         else:
@@ -40,15 +32,7 @@ class WheelSpinner:
                 self.next_spin = None
                 logging.error(f'Invalid next spin: {next_spin}. Ignoring.')
         self.animation = self.generate_animation()
-
-    def save_svg(self, filename):
-        animation = self.generate_animation()
-        animation.save_svg(filename)
-        return self.weighted_options[0]
-
-    def return_svg(self):
-        animation = self.generate_animation()
-        return animation.as_svg()
+        self.response = self.weighted_options[0].include_text
 
     def get_color(self):
         self.colors_set = (self.colors_set + 1) % len(self.colors)
@@ -115,7 +99,7 @@ class WheelSpinner:
 
         wheel = self.get_wheel()
         start_pos = random.randint(360, 400)
-        end_pos = self.weighted_options[0][1]/sum([weight for option, weight, on_select in self.weighted_options])*180
+        end_pos = self.weighted_options[0].weight/sum([option.weight for option in self.weighted_options])*180
         diff = start_pos - end_pos
 
         # define keyframes for a natural deceleration
@@ -150,11 +134,11 @@ class WheelSpinner:
 
     def get_wheel(self):
         wheel = draw.Group()
-        total_weight = sum([weight for option, weight, on_select in self.weighted_options])
+        total_weight = sum([option.weight for option in self.weighted_options])
         current_position = 0
-        for option, weight, next_spin in self.weighted_options:
-            next_position = current_position + (weight/total_weight)*360
-            slice = self.get_slice(current_position, next_position, option, color=self.get_color())
+        for option in self.weighted_options:
+            next_position = current_position + (option.weight/total_weight)*360
+            slice = self.get_slice(current_position, next_position, option.option, color=self.get_color())
             current_position = next_position
             wheel.append(slice)
         return wheel
@@ -211,7 +195,7 @@ class WheelSpinner:
         box = draw.Group(opacity=0)
         box.append(draw.Rectangle(-60, -25, 120, 50, fill='white', stroke='black', stroke_width=1, opacity=0.8))
 
-        text = self.weighted_options[0][0]
+        text = self.weighted_options[0].option
         text, max_length = add_line_breaks(text)
         font_size = get_font_size(text, max_length, 100, 40)
         box.append(draw.Text(text, font_size, 0, 0, text_anchor='middle', center=True, fill='black'))

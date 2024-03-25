@@ -26,6 +26,14 @@ class NoTabError(Exception):
     pass
 
 
+class _WheelOption:
+    def __init__(self, option: str, weight=1, on_select=None, include_text=None):
+        self.option = option
+        self.weight = weight
+        self.on_select = on_select
+        self.include_text = include_text if include_text is not None else ''
+
+
 class CommandHandler:
     def __init__(self):
         base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'

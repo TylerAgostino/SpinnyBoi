@@ -153,15 +153,8 @@ class CommandHandler:
                 images.append(fh)
             return "", images, 'odds.png'
 
-
-
-    def tester(self):
-        wheel = WheelSpinner.WheelSpinner()
-        file = wheel.return_gif(self.driver)
-        return self.get_message(), file
-
     def custom(self, options):
-        opts_list = [opt for opt in options.split(',')]
+        opts_list = [_WheelOption(opt) for opt in options.split(',')]
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(self.driver)
         return self.get_message(), file

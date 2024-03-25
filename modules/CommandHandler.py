@@ -199,9 +199,13 @@ class CommandHandler:
                     pass
 
         gifs = []
+        responses = []
         for wheel in wheels:
             gifs.append(wheel.return_gif(self.driver))
-        return self.get_message(), gifs
+            responses.append(wheel.response)
+
+        message = f'{self.get_message()} {" ".join(responses)}'
+        return message, gifs
 
     def generate_option_set(self, tab, filter_string=''):
         try:
@@ -220,6 +224,7 @@ class CommandHandler:
         filter_queries = []
         weighting = None
         on_select = None
+        response_text = None
         for filter in filters:
             try:
                 if filter.find('|') > 0:
@@ -252,6 +257,8 @@ class CommandHandler:
                         weighting = filter.split('=')[1]
                     elif filter.find('!onselect=') >= 0:
                         on_select = filter.split('=')[1]
+                    elif filter.find('!response=') >= 0:
+                        response_text = filter.split('=')[1]
                     elif filter.find('<>') > 0:
                         a = filter.split('<>')
                         filter_queries.append(f"not `{a[0].strip(' ')}`.astype('string').str.lower().str.contains('{a[1].strip(' ')}')")
@@ -296,7 +303,7 @@ class CommandHandler:
                 selection['nullonSelect'] = None
                 on_select = 'nullonSelect'
 
-        option_set = [(selection['fullname'], int(selection[weighting]), selection[on_select]) for selection in selections]
+        option_set = [_WheelOption(selection['fullname'], int(selection[weighting]), selection[on_select], None if response_text is None else selection[response_text]) for selection in selections]
         return option_set
 
     def spin_single_sheet(self, tab, filter_string=''):
@@ -307,7 +314,8 @@ class CommandHandler:
             return str(e)
         wheel = WheelSpinner.WheelSpinner(opt_set)
         gif = wheel.return_gif(self.driver)
-        return self.get_message(), gif
+        message = f'{self.get_message()} {wheel.response}'
+        return message, gif
 
     @staticmethod
     def get_message(messages_file='messages.txt'):

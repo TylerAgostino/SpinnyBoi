@@ -323,4 +323,4 @@ class CommandHandler:
         fp = open(messages_file)
         messages = [message for message in fp.readlines()]
         lines = len(messages)
-        return messages[int(int(roll * 100) % lines)]
+        return messages[int(int(roll * 100) % lines)].strip('\n')

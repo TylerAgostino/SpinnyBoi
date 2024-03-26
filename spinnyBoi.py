@@ -13,8 +13,14 @@ reactions_file = open('reactions.txt', 'r')
 reactions = reactions_file.readlines()
 reaction_dict = {}
 for reaction in reactions:
-    tup = reaction.split(',')
-    reaction_dict[tup[0].lower()] = tup[1].strip()
+    try:
+        tup = reaction.split(',')
+        reaction_dict[tup[0].lower()] = tup[1].strip()
+    except IndexError:
+        logging.error("Invalid reaction line: " + reaction)
+        logging.error("Its probably Brian's fault")
+    except Exception as e:
+        logging.error("Something went wrong: " + str(e))
 reactions_file.close()
 
 

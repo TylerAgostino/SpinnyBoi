@@ -54,11 +54,11 @@ class MyClient(discord.Client):
 
         for key in reaction_dict.keys():
             if str(message.content).lower().find(key) != -1:
-                await message.add_reaction(reaction_dict[key])
-                return
-        if str(message.content).lower().find('spin') != -1 or str(message.content).lower().find('wheel') != -1:
-            await message.add_reaction("")
-            return
+                try:
+                    await message.add_reaction(reaction_dict[key])
+                except Exception as e:
+                    logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
+        return
 
 
 def main():

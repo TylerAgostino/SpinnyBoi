@@ -1,9 +1,17 @@
 spin,<a:wheel:1096138684786544883>
 wheel,<a:wheel:1096138684786544883>
+salt,<a:saltbae:1104838782429167748>
 joe parmesan,<:Joe_Parmesan:1206623651521105960>
+agosto,<:Agosto:1203161643882778654>
+bailey,<:Baileys_from_a_shoe:1205275626693595255>
+koffard,<:HedMod:1207371810534858822>
+hed mod,<:HedMod:1207371810534858822>
+tanner,<:TannerClinePodcast:1212977753868083200>
+klenk,<:Klonk:1205274555090866176>
+klonk,<:Klonk:1205274555090866176>
 le mans,<:LeThonk:1173028521715708055>
 mid ohio,<:MidThonkio:1173022323004145706>
-road america,<:ThonkAmerica:1174786626325 577778>
+road america,<:ThonkAmerica:1174786626325577778>
 indianapolis,<:Thonkanapolis:1184974104617554071>
 indy,<:Thonkanapolis:1184974104617554071>
 texas,<:ThonkasRoval:1211099361191133184>
@@ -20,6 +28,7 @@ chicago,<:ThonkcagoStreet:1211873255921815603>
 barcelona,<:Thonkcelona:1210615702554411029>
 catalunya,<:Thonkcelona:1210615702554411029>
 lédenon,<:Thonkdenon:1211885053324566529>
+ledenon,<:Thonkdenon:1211885053324566529>
 zolder,<:Thonkder:1211079921548664912>
 sandown,<:Thonkdown:1211880814938423337>
 hockenheim,<:Thonkenheimring:1174467613376643162>
@@ -88,3 +97,4 @@ magny cours,<:ThonkyCours:1211080019447648276>
 monza,<:Thonkza:1174466646765748264>
 suzuka,<:Thonkzuka:1211082294627143740>
 vir,<:VIThonk:1184974027723391076>
+cmp,<:ThonkMP:1221822729204928624>

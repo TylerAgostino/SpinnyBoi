@@ -61,7 +61,6 @@ willow springs,<:ThonkowSprings:1174465492036112445>
 aragon,<:Thonkragon:1211886121605398538>
 oran,<:ThonkranPark:1185787720543514717>
 montreal,<:Thonkreal:1174780435625164930>
-montreal,<:Thonkreal:1174780435625164930>
 cgv,<:ThonkRockPark:1174464337293885461>
 gilles villeneuve,<:Thonkreal:1174780435625164930>
 lime rock,<:ThonkRockPark:1174464337293885461>
@@ -69,7 +68,7 @@ lrp,<:ThonkRockPark:1174464337293885461>
 misano,<:Thonksano:1215048951825170532>
 kansas,<:ThonksasRoval:1211079984597180459>
 nordschleife,<:Thonkschleife:1174788947788967936>
-nord<:Thonkschleife:1174788947788967936>
+nord,<:Thonkschleife:1174788947788967936>
 brands hatch,<:ThonksHatch:1210615632052101201>
 rudskogen,<:Thonkskogen:1211881946490212353>
 mosport,<:Thonksport:1174765920426668162>
@@ -83,7 +82,7 @@ tsukuba 1000,<:Thonkuba1000:1212161479919411230>
 tsukuba,<:Thonkuba2000:1174780610078834688>
 laguna,<:ThonkunaSeca:1180635368383582268>
 vegas,<:ThonkVegasRoval:1211873177035346020>
-zandvoort<:Thonkvoort:1212152574568955964>
+zandvoort,<:Thonkvoort:1212152574568955964>
 north wilkesboro,<:ThonkWilkesboro:1211879975549018152>
 magny cours,<:ThonkyCours:1211080019447648276>
 monza,<:Thonkza:1174466646765748264>

@@ -1,2 +1,91 @@
 spin,<a:wheel:1096138684786544883>
 wheel,<a:wheel:1096138684786544883>
+joe parmesan,<:Joe_Parmesan:1206623651521105960>
+le mans,<:LeThonk:1173028521715708055>
+mid ohio,<:MidThonkio:1173022323004145706>
+road america,<:ThonkAmerica:1174786626325 577778>
+indianapolis,<:Thonkanapolis:1184974104617554071>
+indy,<:Thonkanapolis:1184974104617554071>
+texas,<:ThonkasRoval:1211099361191133184>
+road atlanta,<:ThonkAtlanta:1173024073182347344>
+okayama,<:Thonkayama:1173021275896156170>
+long beach,<:ThonkBeach:1169682246542823577>
+barber,<:Thonkber:1211873201534017536>
+sebring,<:Thonkbring:1211884718686208030>
+red bull ring,<:ThonkBullRing:1173019004869283900>
+rbr,<:ThonkBullRing:1173019004869283900>
+nurburgring,<:ThonkburgringGP:1211884787875446855>
+nurb,<:ThonkburgringGP:1211884787875446855>
+chicago,<:ThonkcagoStreet:1211873255921815603>
+barcelona,<:Thonkcelona:1210615702554411029>
+catalunya,<:Thonkcelona:1210615702554411029>
+lédenon,<:Thonkdenon:1211885053324566529>
+zolder,<:Thonkder:1211079921548664912>
+sandown,<:Thonkdown:1211880814938423337>
+hockenheim,<:Thonkenheimring:1174467613376643162>
+interlagos,<:Thonkerlagos:1174765944942374962>
+oschersleben,<:Thonkersleben:1212152611759722556>
+silverstone,<:Thonkerstone:1210695212582699118>
+snetterton,<:Thonkerton:1210695163261878383>
+porsche experience center,<:ThonkExperienceCenter:1212161355675734088>
+jerez,<:Thonkez:1212152593837461594>
+spa,<:ThonkFrancorchamps:1173024052076625980>
+hungaroring,<:Thonkgaroring:1210615728923746395>
+mugello,<:Thonkgello:1210615587328233492>
+slinger,<:Thonkger:1212161453155418152>
+knockhill,<:Thonkhill:1210615667443638303>
+bathurst,<:Thonkhurst:1174463722757034045>
+mount panorama,<:Thonkhurst:1174463722757034045>
+motegi,<:ThonkilityResortMotegiOval:1212161331449565185>
+mobility resort,<:ThonkilityResortMotegiRoad:1212161313976090634>
+portimao,<:Thonkimao:1215048931172425748>
+algarve,<:Thonkimao:1215048931172425748>
+donington,<:ThonkingtonPark:1211873282811232277>
+watkins,<:ThonkinsGlen:1211878171952152676>
+martinsville,<:Thonkinsville:1211879064080752650>
+phillip island,<:ThonkipIsland:1210695233029800008>
+philip island,<:ThonkipIsland:1210695233029800008>
+belle isle,<:ThonkIsle:1211080053732024370>
+summit point,<:ThonkitPoint:1184606021780521032>
+jefferson,<:ThonkitPointJefferson:1212153828766388266>
+phoenix,<:ThonkixRoval:1211099337191596064>
+fuji,<:Thonkji:1184973940301504634>
+atlanta,<:ThonklantaRoval:1211873119552143380>
+darlington,<:Thonklington:1212161434465599498>
+charlotte,<:ThonklotteRoval:1174767224402235393>
+sonoma,<:Thonknoma:1180635474793082910>
+cota,<:ThonkoftheAmericas:1212148000865132607>
+imola,<:Thonkola:1174471264044339280>
+pocono,<:ThonkonoRoval:1211099304064847912>
+willow springs,<:ThonkowSprings:1174465492036112445>
+aragon,<:Thonkragon:1211886121605398538>
+oran,<:ThonkranPark:1185787720543514717>
+montreal,<:Thonkreal:1174780435625164930>
+montreal,<:Thonkreal:1174780435625164930>
+cgv,<:ThonkRockPark:1174464337293885461>
+gilles villeneuve,<:Thonkreal:1174780435625164930>
+lime rock,<:ThonkRockPark:1174464337293885461>
+lrp,<:ThonkRockPark:1174464337293885461>
+misano,<:Thonksano:1215048951825170532>
+kansas,<:ThonksasRoval:1211079984597180459>
+nordschleife,<:Thonkschleife:1174788947788967936>
+nord<:Thonkschleife:1174788947788967936>
+brands hatch,<:ThonksHatch:1210615632052101201>
+rudskogen,<:Thonkskogen:1211881946490212353>
+mosport,<:Thonksport:1174765920426668162>
+ctmp,<:Thonksport:1174765920426668162>
+homestead,<:ThonksteadMiamiRoval:1211873151651418132>
+bristol,<:Thonkstol:1211079954125824010>
+winton,<:Thonkton:1210695257470271578>
+daytona,<:ThonktonaRoad:1174780525806886922>
+oulton,<:ThonktonPark:1211882691813974046>
+tsukuba 1000,<:Thonkuba1000:1212161479919411230>
+tsukuba,<:Thonkuba2000:1174780610078834688>
+laguna,<:ThonkunaSeca:1180635368383582268>
+vegas,<:ThonkVegasRoval:1211873177035346020>
+zandvoort<:Thonkvoort:1212152574568955964>
+north wilkesboro,<:ThonkWilkesboro:1211879975549018152>
+magny cours,<:ThonkyCours:1211080019447648276>
+monza,<:Thonkza:1174466646765748264>
+suzuka,<:Thonkzuka:1211082294627143740>
+vir,<:VIThonk:1184974027723391076>

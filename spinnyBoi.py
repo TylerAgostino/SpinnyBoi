@@ -14,7 +14,7 @@ reactions = reactions_file.readlines()
 reaction_dict = {}
 for reaction in reactions:
     tup = reaction.split(',')
-    reaction_dict[tup[0]] = tup[1].strip()
+    reaction_dict[tup[0].lower()] = tup[1].strip()
 reactions_file.close()
 
 

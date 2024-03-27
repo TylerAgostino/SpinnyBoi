@@ -59,10 +59,7 @@ class MyClient(discord.Client):
         for key in reaction_dict.keys():
             if str(message.content).lower().find(key) != -1:
                 try:
-                    if len(reaction_dict[key]) == 1:
-                        emote_id = reaction_dict[key][0]
-                    else:
-                        emote_id = random.choice(reaction_dict[key])
+                    emote_id = random.choice(reaction_dict[key])
                     await message.add_reaction(emote_id)
                 except Exception as e:
                     logging.error(f"Error adding reaction {emote_id} to message {message.id}: {str(e)}")

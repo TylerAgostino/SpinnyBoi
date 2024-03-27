@@ -1,6 +1,7 @@
 import os
 import discord
 import logging
+import random
 from modules import CommandHandler
 
 status_message = "/spin"
@@ -15,7 +16,10 @@ reaction_dict = {}
 for reaction in reactions:
     try:
         tup = reaction.split(',')
-        reaction_dict[tup[0].lower()] = tup[1].strip()
+        reaction_key = tup[0].lower()
+        reaction_dict[reaction_key] = []
+        for emote_id in tup[1:]:
+            reaction_dict[reaction_key].append(emote_id.strip())
     except IndexError:
         logging.error("Invalid reaction line: " + reaction)
         logging.error("Its probably Brian's fault")
@@ -55,9 +59,13 @@ class MyClient(discord.Client):
         for key in reaction_dict.keys():
             if str(message.content).lower().find(key) != -1:
                 try:
-                    await message.add_reaction(reaction_dict[key])
+                    if len(reaction_dict[key]) == 1:
+                        emote_id = reaction_dict[key][0]
+                    else:
+                        emote_id = random.choice(reaction_dict[key])
+                    await message.add_reaction(emote_id)
                 except Exception as e:
-                    logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
+                    logging.error(f"Error adding reaction {emote_id} to message {message.id}: {str(e)}")
         return
 
 

@@ -58,7 +58,9 @@ class MyClient(discord.Client):
                     await message.add_reaction(reaction_dict[key])
                 except Exception as e:
                     logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
-        return
+
+        if message.author.id == 292447304395522048:
+            await message.add_reaction("<a:wheel:1096138684786544883>")
 
 
 def main():

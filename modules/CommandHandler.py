@@ -123,7 +123,7 @@ class CommandHandler:
             except Exception as e:
                 logging.error(f'Error processing tab {tab_name}, filter string {filter_string}: {str(e)}')
                 return f"The preset {preset_name} ran into an error: {str(e)}"
-            options_df = pd.DataFrame(opt_set, columns=['Option', 'Weight', 'OnSelect'])
+            options_df = pd.DataFrame([[option.option, option.weight, option.on_select] for option in opt_set], columns=['Option', 'Weight', 'OnSelect'])
             # Get the percentage of each option
             total_weight = options_df['Weight'].sum()
             options_df['Percentage'] = options_df['Weight'] / total_weight

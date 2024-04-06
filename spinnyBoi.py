@@ -64,7 +64,7 @@ class MyClient(discord.Client):
                 except Exception as e:
                     logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
 
-        if message.author.id == 292447304395522048:
+        if message.author.id == 292447304395522048 and random.randint(0, 100) < 20:
             await message.add_reaction("<a:wheel:1096138684786544883>")
 
 

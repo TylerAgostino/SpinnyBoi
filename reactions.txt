@@ -10,8 +10,13 @@ hed mod,<:HedMod:1207371810534858822>
 tanner,<:TannerClinePodcast:1212977753868083200>
 klenk,<:Klonk:1205274555090866176>
 klonk,<:Klonk:1205274555090866176>
+bonk,<:leblonk:1224453800400523356>
+blonk,<:leblonk:1224453800400523356>
+leblanc,<:leblonk:1224453800400523356>
+dick,🍆
 le mans,<:LeThonk:1173028521715708055>
-mid ohio,<:MidThonkio:1173022323004145706>
+mid o,<:MidThonkio:1173022323004145706>
+mid-o,<:MidThonkio:1173022323004145706>
 road america,<:ThonkAmerica:1174786626325577778>
 indianapolis,<:Thonkanapolis:1184974104617554071>
 indy,<:Thonkanapolis:1184974104617554071>
@@ -52,6 +57,7 @@ portimao,<:Thonkimao:1215048931172425748>
 algarve,<:Thonkimao:1215048931172425748>
 donington,<:ThonkingtonPark:1211873282811232277>
 watkins,<:ThonkinsGlen:1211878171952152676>
+glen,<:ThonkinsGlen:1211878171952152676>
 martinsville,<:Thonkinsville:1211879064080752650>
 phillip island,<:ThonkipIsland:1210695233029800008>
 philip island,<:ThonkipIsland:1210695233029800008>
@@ -71,7 +77,7 @@ willow springs,<:ThonkowSprings:1174465492036112445>
 aragon,<:Thonkragon:1211886121605398538>
 oran,<:ThonkranPark:1185787720543514717>
 montreal,<:Thonkreal:1174780435625164930>
-cgv,<:ThonkRockPark:1174464337293885461>
+cgv,<:Thonkreal:1174780435625164930>
 gilles villeneuve,<:Thonkreal:1174780435625164930>
 lime rock,<:ThonkRockPark:1174464337293885461>
 lrp,<:ThonkRockPark:1174464337293885461>

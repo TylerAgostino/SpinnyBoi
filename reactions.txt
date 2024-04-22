@@ -57,6 +57,7 @@ portimao,<:Thonkimao:1215048931172425748>
 algarve,<:Thonkimao:1215048931172425748>
 donington,<:ThonkingtonPark:1211873282811232277>
 watkins,<:ThonkinsGlen:1211878171952152676>
+glen,<:ThonkinsGlen:1211878171952152676>
 martinsville,<:Thonkinsville:1211879064080752650>
 phillip island,<:ThonkipIsland:1210695233029800008>
 philip island,<:ThonkipIsland:1210695233029800008>

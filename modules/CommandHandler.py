@@ -170,7 +170,7 @@ class CommandHandler:
         fh.seek(0)
         return prompt, [fh], 'stablediffusion.png'
 
-    def preset(self, preset_name):
+    def preset(self, preset_name, instant=False):
         try:
             filters_df = self.presets_df.query(f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'").to_dict('records')[0]
         except IndexError:
@@ -200,6 +200,12 @@ class CommandHandler:
 
         gifs = []
         responses = []
+
+        if instant:
+            message = ''
+            for wheel in wheels:
+                message += f'{wheel.repeated_options[0].option}\n'
+            return message, []
         for wheel in wheels:
             gifs.append(wheel.return_gif(self.driver))
             responses.append(wheel.response)
@@ -316,6 +322,9 @@ class CommandHandler:
         gif = wheel.return_gif(self.driver)
         message = f'{self.get_message()} {wheel.response}'
         return message, gif
+
+    def stant(self, *args):
+        return self.preset('DEFAULT', instant=True)
 
     @staticmethod
     def get_message(messages_file='messages.txt'):

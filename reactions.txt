@@ -3,6 +3,7 @@ wheel,<a:wheel:1096138684786544883>
 salt,<a:saltbae:1104838782429167748>
 gio,<:gio:1223489132794478654>
 joe parmesan,<:Joe_Parmesan:1206623651521105960>
+joey parm,<:Joe_Parmesan:1206623651521105960>
 agosto,<:Agosto:1203161643882778654>,<:Thonkosto:1220097281836056828>
 bailey,<:Baileys_from_a_shoe:1205275626693595255>
 koffard,<:HedMod:1207371810534858822>
@@ -13,6 +14,8 @@ klonk,<:Klonk:1205274555090866176>
 bonk,<:leblonk:1224453800400523356>
 blonk,<:leblonk:1224453800400523356>
 leblanc,<:leblonk:1224453800400523356>
+nolan,<:ThonkelFounder:1232849100085657600>
+channel founder,<:ThonkelFounder:1232849100085657600>
 dick,🍆
 le mans,<:LeThonk:1173028521715708055>
 mid o,<:MidThonkio:1173022323004145706>
@@ -39,6 +42,8 @@ zolder,<:Thonkder:1211079921548664912>
 sandown,<:Thonkdown:1211880814938423337>
 hockenheim,<:Thonkenheimring:1174467613376643162>
 interlagos,<:Thonkerlagos:1174765944942374962>
+josé carlos,<:Thonkerlagos:1174765944942374962>
+jose carlos,<:Thonkerlagos:1174765944942374962>
 oschersleben,<:Thonkersleben:1212152611759722556>
 silverstone,<:Thonkerstone:1210695212582699118>
 snetterton,<:Thonkerton:1210695163261878383>

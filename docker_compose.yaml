@@ -7,7 +7,7 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - GSHEET_ID=${GSHEET_ID}
   ollama:
-    image: tyleragostino/ollama:latest
+    image: ollama/ollama:latest
     restart: always
     ports:
       - "11434:11434"

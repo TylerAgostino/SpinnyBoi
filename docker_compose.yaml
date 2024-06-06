@@ -6,15 +6,12 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - GSHEET_ID=${GSHEET_ID}
-  baserow:
-    container_name: baserow
-    image: baserow/baserow:1.22.3
-    environment:
-      BASEROW_PUBLIC_URL: 'https://baserow.portersparadise.com'
+  ollama:
+    image: tyleragostino/ollama:latest
+    restart: always
     ports:
-      - "8180:80"
-      - "8143:443"
+      - "11434:11434"
     volumes:
-      - baserow_data:/baserow/data
+        - ollama:/root/.ollama
 volumes:
-  baserow_data:
+  ollama:

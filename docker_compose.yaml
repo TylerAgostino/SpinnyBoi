@@ -14,7 +14,7 @@ services:
     volumes:
         - ollama:/root/.ollama
   open-webui:
-    image: open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:main
     container_name: open-webui
     volumes:
       - ollama:/root/.ollama

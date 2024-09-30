@@ -1,11 +1,13 @@
 PyYAML~=5.4.1
 selenium
-Pillow~=9.3.0
+Pillow~=10.0.1
 discord.py
-gitpython
+gitpython~=3.1.41
 pandas~=2.0.2
 requests~=2.31.0
 drawsvg[all]~=2.0
 webuiapi
 dataframe_image
 matplotlib
+langchain-ollama
+langchain

@@ -2,7 +2,7 @@ import os
 import discord
 import logging
 import random
-from modules import CommandHandler
+from modules import CommandHandler, ChatHandler
 
 status_message = "/spin"
 
@@ -64,6 +64,12 @@ class MyClient(discord.Client):
                 except Exception as e:
                     logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
 
+        if self.user.mentioned_in(message):
+            history = [m async for m in message.channel.history(limit=300, before=message)]
+            history.reverse()
+            response = ChatHandler.respond_in_chat(message, history, self.user)
+            await message.channel.send(response)
+
         if message.author.id == 292447304395522048 and random.randint(0, 100) < 20:
             await message.add_reaction("<a:wheel:1096138684786544883>")
 
@@ -71,6 +77,7 @@ class MyClient(discord.Client):
 def main():
     intents = discord.Intents.default()
     intents.message_content = True
+    intents.members = True
     client = MyClient(intents=intents)
     bot_token = os.getenv('BOT_TOKEN')
     client.run(bot_token)

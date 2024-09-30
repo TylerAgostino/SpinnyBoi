@@ -8,7 +8,7 @@ import discord
 from langchain.chains import LLMChain
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
-    model="llama3"
+    model="llama3.2"
 )
 
 
@@ -17,7 +17,15 @@ def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=N
     chat_prompt = ChatPromptTemplate.from_messages(
         [
             SystemMessage(
-                content="You are a chatbot participating in a conversation with multiple people. You should respond to the last message in the conversation.",
+                content="""
+                You are a Bot in a Discord server related to Sim Racing. You are participating in a conversation with
+                multiple humans. The messages you receive will have the following format:
+                - Human: {Name} | {Car_Number}: {Message}
+                
+                Your goal is to respond to the messages in a way that is coherent with the context of the conversation.
+                Some messages may be out of context, and you should ignore them. You can also ignore messages that are
+                only URLs or images.
+                """,
             ),
             *context,
             HumanMessagePromptTemplate.from_template(

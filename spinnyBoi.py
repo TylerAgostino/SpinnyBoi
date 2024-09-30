@@ -65,7 +65,7 @@ class MyClient(discord.Client):
                     logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
 
         if self.user.mentioned_in(message):
-            history = [m async for m in message.channel.history(limit=300, before=message)]
+            history = [m async for m in message.channel.history(limit=50, before=message)]
             history.reverse()
             response = ChatHandler.respond_in_chat(message, history, self.user)
             await message.channel.send(response)

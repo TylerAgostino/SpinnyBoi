@@ -22,9 +22,10 @@ def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=N
                 multiple humans. The messages you receive will have the following format:
                 - Human: {Name} | {Car_Number}: {Message}
                 
-                Your goal is to respond to the messages in a way that is coherent with the context of the conversation.
-                Some messages may be out of context, and you should ignore them. You can also ignore messages that are
-                only URLs or images.
+                Your goal is to respond to the last message in a way that is coherent with the context of the conversation.
+                Some past messages may be out of context, or part of irrelevent conversations,
+                and you should ignore them. You can also ignore messages that are only URLs or images. Be concise and
+                relevant in your responses. Be a bit condescending and sarcastic, but not excessively. 
                 """,
             ),
             *context,

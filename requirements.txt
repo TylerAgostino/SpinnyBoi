@@ -11,3 +11,5 @@ dataframe_image
 matplotlib
 langchain-ollama
 langchain
+transformers
+langgraph

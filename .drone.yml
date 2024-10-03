@@ -17,6 +17,8 @@ steps:
     when:
       branch:
         - main
+      changeset:
+        includes: [ **/**.py, **/**.txt ]
   - name: deploy
     image: plugins/webhook
     settings:

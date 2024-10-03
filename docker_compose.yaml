@@ -6,6 +6,9 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - GSHEET_ID=${GSHEET_ID}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_PROJECT=spinnyboi
   ollama:
     image: ollama/ollama:latest
     restart: always

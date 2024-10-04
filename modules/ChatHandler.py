@@ -68,10 +68,10 @@ def call_model(state: State):
 workflow.add_edge(START, "model")
 workflow.add_node("model", call_model)
 
-app = workflow.compile(checkpointer=MemorySaver())
 
 
 def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=None):
+    app = workflow.compile(checkpointer=MemorySaver())
     context = format_context(last_messages, bot_ident)
     response = app.invoke(
         {'messages': context, 'user_prompt': [HumanMessage(content=f'{message.author.nick}: {message.content}')]},

@@ -1,11 +1,10 @@
-PyYAML~=5.4.1
+PyYAML
 selenium
-Pillow~=10.0.1
+Pillow
 discord.py
-gitpython~=3.1.41
-pandas~=2.0.2
-requests~=2.31.0
-drawsvg[all]~=2.0
+pandas
+requests
+drawsvg[all]
 webuiapi
 dataframe_image
 matplotlib
@@ -14,3 +13,6 @@ langchain
 transformers
 langgraph
 torch
+langchain-chroma
+langchain-community
+duckduckgo-search

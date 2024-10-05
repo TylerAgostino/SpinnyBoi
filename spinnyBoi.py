@@ -65,10 +65,11 @@ class MyClient(discord.Client):
                     logging.error(f"Error adding reaction {reaction_dict[key]} to message {message.id}: {str(e)}")
 
         if self.user.mentioned_in(message):
-            history = [m async for m in message.channel.history(limit=50, before=message)]
-            history.reverse()
-            response = ChatHandler.respond_in_chat(message, history, self.user)
-            await message.channel.send(response)
+            async with message.channel.typing():
+                history = [m async for m in message.channel.history(limit=50, before=message)]
+                history.reverse()
+                response = ChatHandler.respond_in_chat(message, history, self.user)
+                await message.channel.send(response)
 
         if message.author.id == 292447304395522048 and random.randint(0, 100) < 20:
             await message.add_reaction("<a:wheel:1096138684786544883>")

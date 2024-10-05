@@ -143,7 +143,8 @@ class WheelSpinner:
             wheel.append(slice)
         return wheel
 
-    def get_slice(self, start_degree, end_degree, option, color=None):
+    @staticmethod
+    def get_slice(start_degree, end_degree, option, color=None):
         if color is None:
             color = f'hsl({random.randint(0, 360)}, {random.randint(30, 100)}%, {random.randint(30, 100)}%)'
 

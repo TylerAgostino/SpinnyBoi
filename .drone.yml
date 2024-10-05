@@ -13,7 +13,7 @@ steps:
       registry: registry.hub.docker.com
       repo: registry.hub.docker.com/tyleragostino/spinnyboi
       tags: latest
-      build_args: BUILDKIT_INLINE_CACHE=1
+      cache_from: "registry.hub.docker.com/tyleragostino/spinnyboi:latest"
     when:
       branch:
         - main
@@ -25,7 +25,7 @@ steps:
       urls: http://192.168.1.125:9996/api/stacks/webhooks/81cacdd6-d5ef-45cd-9983-cd3ff1f1058b
     when:
       changeset:
-        includes: [ "**/**.py", "**/**.txt", "**/docker_compose.yaml" ]
+        includes: [ "**/**.py", "**/**.txt", "**/docker_compose.yaml", "**/Dockerfile"  ]
 
 trigger:
   ref:

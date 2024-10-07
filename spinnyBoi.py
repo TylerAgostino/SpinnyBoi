@@ -66,7 +66,7 @@ class MyClient(discord.Client):
 
         if self.user.mentioned_in(message):
             async with message.channel.typing():
-                history = [m async for m in message.channel.history(limit=50, before=message)]
+                history = [m async for m in message.channel.history(limit=80, before=message)]
                 history.reverse()
                 response = ChatHandler.respond_in_chat(message, history, self.user)
                 await message.channel.send(response)

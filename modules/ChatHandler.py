@@ -23,13 +23,13 @@ class State(TypedDict):
 
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
-    model="llama3.2",
-    temperature=0.3
+    model="llama3.2:1b",
+    temperature=0.4
 )
 
 workflow = StateGraph(state_schema=State)
 trimmer = trim_messages(
-    max_tokens=70000,
+    max_tokens=50000,
     strategy='last',
     token_counter=chat_ollama,
     include_system=True,
@@ -37,7 +37,8 @@ trimmer = trim_messages(
 )
 
 prompt = ChatPromptTemplate.from_messages(
-    messages=[SystemMessage("""You are a snarky, witty, and sometimes antagonistic chatbot deployed in a Discord server related to Sim Racing. You are participating in a conversation with
+    messages=[SystemMessage("""You are a snarky, witty, and sometimes antagonistic chatbot deployed in a Discord server 
+    related to Sim Racing. You are participating in a conversation with
 multiple humans. The messages you receive will have the following format:
 - Human: [Name] | [Car_Number]: [Message]
 
@@ -67,7 +68,6 @@ def call_model(state: State):
 
 workflow.add_edge(START, "model")
 workflow.add_node("model", call_model)
-
 
 
 def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=None):

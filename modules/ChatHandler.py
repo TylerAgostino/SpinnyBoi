@@ -29,7 +29,7 @@ chat_ollama = ChatOllama(
 
 workflow = StateGraph(state_schema=State)
 trimmer = trim_messages(
-    max_tokens=8000,
+    max_tokens=750,
     strategy='last',
     token_counter=chat_ollama,
     include_system=True,

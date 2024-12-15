@@ -21,12 +21,13 @@ class State(TypedDict):
     summary: str
     user_prompt: str
     last_few: Sequence[BaseMessage]
+    raw_msg: str
 
 
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
     model="llama3.2:1b",
-    temperature=0.4
+    temperature=0.7
 )
 
 workflow = StateGraph(state_schema=State)
@@ -38,8 +39,16 @@ trimmer = trim_messages(
     allow_partial=False
 )
 
-prompt = ChatPromptTemplate.from_messages(
-    messages=[SystemMessage("""You are a snarky, witty, and sometimes antagonistic chatbot deployed in a Discord server 
+
+
+
+
+
+@traceable
+def call_model(state: State):
+    prompt = ChatPromptTemplate.from_messages(
+        messages=[SystemMessage(f"""<instructions>
+        You are a snarky, witty, and sometimes antagonistic chatbot deployed in a Discord server 
     related to Sim Racing. You are participating in a conversation with
 multiple humans. The messages you receive will have the following format:
 - Human: [Name] | [Car_Number]: [Message]
@@ -51,40 +60,42 @@ Use sarcasm, playful insults, or witty comebacks. Your responses should be bold 
 Do not refer to yourself as a chatbot or AI. Just act like a normal participant in the server.
 Be brief and direct in your responses. Be sarcastic, make jokes, and mock users playfully. 
 Don’t describe actions like "pauses" or "laughs" in your responses. Avoid parenthetical asides or explanations.
+Respond with less than 1000 characters
+</instructions>
+
+Here is a summary of the conversation until now:
+<summary>
+{state['summary']}
+</summary>
+
+Here are the final few messages:
+<history>
+{state["last_few"]}
+</history>
 """),
-              MessagesPlaceholder(variable_name="summary"),
-              MessagesPlaceholder(variable_name="last_few"),
-              MessagesPlaceholder(variable_name="user_prompt")],
-)
-
-summary_prompt = ChatPromptTemplate.from_messages(
-    messages=[SystemMessage("""This conversation is taken from a Discord server related to Sim Racing.
-    Summarize the conversation history. Your summary will be used to provide context to an AI model."""),
-              MessagesPlaceholder(variable_name="messages"),]
-)
-
-
-@traceable
-def call_model(state: State):
+                  MessagesPlaceholder(variable_name="user_prompt")],
+    )
     chain = prompt | chat_ollama
-    filtered_messages = trimmer.invoke(state["messages"])
     response = chain.invoke({
-        "messages": filtered_messages,
-        "user_prompt": state["user_prompt"],
-        "summary": state["summary"],
+        "user_prompt": state["user_prompt"]
     }
     )
     return {"messages": [response]}
 
 @traceable
 def summarize(state: State):
+    summary_prompt = ChatPromptTemplate.from_messages(
+        messages=[SystemMessage("""Summarize this conversation between yourself and a group of people in a simracing
+    Discord channel. Be objective and detailed, and omit any parts of the conversation where you had refused
+    to answer."""),
+                  MessagesPlaceholder(variable_name="raws"),]
+    )
     chain = summary_prompt | chat_ollama
     response = chain.invoke({
-        "messages": state["messages"]
+        "raws": state["raw_msg"]
     }
     )
-    return {"summary": [response],
-            "last_few": state["messages"][-10:]}
+    return {"summary": response.content}
 
 
 
@@ -96,20 +107,23 @@ workflow.add_edge("summarize", "model")
 
 def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=None):
     app = workflow.compile(checkpointer=MemorySaver())
-    context = format_context(last_messages, bot_ident)
+    context = format_raw(last_messages[-2:], bot_ident)
+    raw_hist = format_raw(last_messages[:-2], bot_ident)
+    raw_hist = [HumanMessage(f'Summarize this chat history: \n\n {raw_hist}')]
     response = app.invoke(
-        {'messages': context, 'user_prompt': [HumanMessage(content=f'{message.author.nick}: {message.content}')]},
+        {'messages': context, 'raw_msg': raw_hist,
+         'last_few': context,
+         'user_prompt': [HumanMessage(content=f'{message.author.nick}: {message.content}')]},
         {'configurable': {'thread_id': message.channel.id}}
     )
     return response["messages"][-1].content
 
-
-def format_context(last_messages, bot_ident):
+def format_raw(last_messages, bot_ident):
     context = []
     for hist in last_messages:
         if hist.author == bot_ident:
-            message = AIMessage(content=hist.content, )
+            message = f'You: {hist.content}'
         else:
-            message = HumanMessage(content=f'{hist.author.nick}: {hist.content}')
+            message = f'{hist.author.nick}: {hist.content}'
         context.append(message)
-    return context
+    return '\n'.join(context)

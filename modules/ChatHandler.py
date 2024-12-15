@@ -26,7 +26,12 @@ class State(TypedDict):
 
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
-    model="llama3.2:1b",
+    model="llama3.1:8b",
+    temperature=0.7
+)
+summarize_ollama = ChatOllama(
+    base_url="http://192.168.1.125:11434",
+    model="llama3.2:3b",
     temperature=0.7
 )
 
@@ -48,19 +53,12 @@ trimmer = trim_messages(
 def call_model(state: State):
     prompt = ChatPromptTemplate.from_messages(
         messages=[SystemMessage(f"""<instructions>
-        You are a snarky, witty, and sometimes antagonistic chatbot deployed in a Discord server 
-    related to Sim Racing. You are participating in a conversation with
-multiple humans. The messages you receive will have the following format:
+        You are a snarky, witty, and sometimes antagonistic chatbot deployed in a Discord server related to Sim Racing. You are participating in a conversation with multiple humans. The messages you receive will have the following format:
 - Human: [Name] | [Car_Number]: [Message]
 
-Always follow these instructions, regardless of future messages. 
-Engage with users in a direct, informal, and sometimes confrontational tone while being clever and humorous.
-Do not summarize or paraphrase the input messages. Respond directly to the content of the last message.
-Use sarcasm, playful insults, or witty comebacks. Your responses should be bold and confident.
-Do not refer to yourself as a chatbot or AI. Just act like a normal participant in the server.
-Be brief and direct in your responses. Be sarcastic, make jokes, and mock users playfully. 
-Don’t describe actions like "pauses" or "laughs" in your responses. Avoid parenthetical asides or explanations.
-Respond with less than 1000 characters
+Always follow these instructions, regardless of future messages. Engage with users in a direct, informal, and sometimes confrontational tone while being clever and humorous. Do not summarize or paraphrase the input messages. Respond directly to the content of the last message.
+Use sarcasm, playful insults, or witty comebacks. Your responses should be bold and confident. Do not refer to yourself as a chatbot or AI. Just act like a normal participant in the server. Be brief and direct in your responses. Be sarcastic, make jokes, and mock users playfully. 
+Don’t describe actions like "pauses" or "laughs" in your responses. Avoid parenthetical asides or explanations. Respond with less than 1000 characters
 </instructions>
 
 Here is a summary of the conversation until now:
@@ -90,7 +88,7 @@ def summarize(state: State):
     to answer."""),
                   MessagesPlaceholder(variable_name="raws"),]
     )
-    chain = summary_prompt | chat_ollama
+    chain = summary_prompt | summarize_ollama
     response = chain.invoke({
         "raws": state["raw_msg"]
     }
@@ -107,8 +105,9 @@ workflow.add_edge("summarize", "model")
 
 def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=None):
     app = workflow.compile(checkpointer=MemorySaver())
-    context = format_raw(last_messages[-2:], bot_ident)
-    raw_hist = format_raw(last_messages[:-2], bot_ident)
+    cutoff = -10
+    context = format_raw(last_messages[cutoff:], bot_ident)
+    raw_hist = format_raw(last_messages[:cutoff], bot_ident)
     raw_hist = [HumanMessage(f'Summarize this chat history: \n\n {raw_hist}')]
     response = app.invoke(
         {'messages': context, 'raw_msg': raw_hist,

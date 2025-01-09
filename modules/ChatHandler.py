@@ -27,12 +27,12 @@ class State(TypedDict):
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
     model="llama3.1:8b",
-    temperature=0.7
+    temperature=0.4
 )
 summarize_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
     model="llama3.2:3b",
-    temperature=0.7
+    temperature=0.4
 )
 
 workflow = StateGraph(state_schema=State)

@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 
 # Reactions
 
-reactions_file = open('reactions.txt', 'r')
+reactions_file = open('reactions.txt', 'r', encoding='utf-8')
 reactions = reactions_file.readlines()
 reaction_dict = {}
 for reaction in reactions:
@@ -66,7 +66,8 @@ class MyClient(discord.Client):
 
         if self.user.mentioned_in(message):
             async with message.channel.typing():
-                history = [m async for m in message.channel.history(limit=80, before=message)]
+                msg_channel = message.channel
+                history = [m async for m in msg_channel.history(limit=80, before=message)]
                 history.reverse()
                 response = ChatHandler.respond_in_chat(message, history, self.user)
                 await message.channel.send(response)

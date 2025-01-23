@@ -1,4 +1,4 @@
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, trim_messages, ChatMessage
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from typing_extensions import Annotated, TypedDict
 from langchain_core.prompts import (
@@ -22,16 +22,17 @@ class State(TypedDict):
     user_prompt: str
     last_few: Sequence[BaseMessage]
     raw_msg: str
+    invoking_user: str
 
 
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
-    model="llama3.1:8b",
+    model="deepseek-r1:8b",
     temperature=0.4
 )
 summarize_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
-    model="llama3.1:8b",
+    model="deepseek-r1:8b",
     temperature=0.4
 )
 
@@ -52,27 +53,17 @@ trimmer = trim_messages(
 @traceable
 def call_model(state: State):
     prompt = ChatPromptTemplate.from_messages(
-        messages=[SystemMessage(f"""<instructions>
-        You are SpinnyBoi; a snarky, antagonistic chatbot in a Discord server related to Sim Racing. You are participating in a conversation with multiple humans. 
-
-Be brief and direct in your responses. Don't use cliches. Don’t describe actions like "pauses" or "laughs" in your responses. Respond with less than 1000 characters
-</instructions>
-
-Here is a summary of the conversation until now:
-<summary>
-{state['summary']}
-</summary>
-
-Here are the final few messages:
-<history>
-{state["last_few"]}
-</history>
+        messages=[SystemMessage(f"""You are SpinnyBoi; a snarky chatbot in a Discord server related to Sim Racing. You are participating in a conversation with multiple humans, including {state['invoking_user']} who has sent the most recent message.
+Messages from other participants will be marked as System messages and will be in the format: {{"author name": "name", "message": "message"}}.  
+Be brief and direct in your responses while satisfying the user's request and maintaining an antagonistic tone. Don't use cliches. Don’t describe actions like "pauses" or "laughs" in your responses. Respond with less than 1000 characters
 """),
+                  MessagesPlaceholder(variable_name="chat_history"),
                   MessagesPlaceholder(variable_name="user_prompt")],
     )
     chain = prompt | chat_ollama
     response = chain.invoke({
-        "user_prompt": state["user_prompt"]
+        "user_prompt": state["user_prompt"],
+        "chat_history": state["messages"]
     }
     )
     return {"messages": [response]}
@@ -94,32 +85,33 @@ def summarize(state: State):
 
 
 
-workflow.add_edge(START, "summarize")
-workflow.add_node('summarize', summarize)
+workflow.add_edge(START, "model")
 workflow.add_node("model", call_model)
-workflow.add_edge("summarize", "model")
 
 
 def respond_in_chat(message: discord.message.Message, last_messages, bot_ident=None):
     app = workflow.compile(checkpointer=MemorySaver())
     cutoff = -10
-    context = format_raw(last_messages[cutoff:], bot_ident)
-    raw_hist = format_raw(last_messages[:cutoff], bot_ident)
-    raw_hist = [HumanMessage(f'Summarize this chat history: \n\n {raw_hist}')]
+    context = format_raw(last_messages[cutoff:], bot_ident, message.author)
     response = app.invoke(
-        {'messages': context, 'raw_msg': raw_hist,
-         'last_few': context,
-         'user_prompt': [HumanMessage(content=f'{message.author.nick}: {message.content}')]},
+        {'messages': context,
+         'user_prompt': [HumanMessage(name=message.author.nick, content=message.content)],
+         'invoking_user': message.author.nick},
         {'configurable': {'thread_id': message.channel.id}}
     )
-    return response["messages"][-1].content
+    chat_response = response["messages"][-1].content
+    # remove everything in the <think> tag
+    chat_response = chat_response.split("</think>")[1] if "</think>" in chat_response else chat_response
+    return chat_response
 
-def format_raw(last_messages, bot_ident):
+def format_raw(last_messages, bot_ident, human_ident):
     context = []
     for hist in last_messages:
         if hist.author == bot_ident:
-            message = f'You: {hist.content}'
+            message = AIMessage(content=hist.content)
+        elif hist.author == human_ident:
+            message = HumanMessage(content=hist.content)
         else:
-            message = f'{hist.author.nick}: {hist.content}'
+            message = SystemMessage(content=f'{{"author name": {hist.author.nick}, "message": {hist.content}}}')
         context.append(message)
-    return '\n'.join(context)
+    return context

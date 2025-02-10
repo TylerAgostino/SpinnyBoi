@@ -7,7 +7,7 @@ joe parmesan,<:Joe_Parmesan:1206623651521105960>
 joey parm,<:Joe_Parmesan:1206623651521105960>
 agosto,<:Agosto:1203161643882778654>,<:Thonkosto:1220097281836056828>
 bailey,<:Baileys_from_a_shoe:1205275626693595255>
-koffard,<:HedMod:1207371810534858822>
+koffard,<:HedMod:1207371810534858822>,<:screw_you_koffard:1338384156299886665>,<:screw_you_again_koffard:1338384182979727473>
 hed mod,<:HedMod:1207371810534858822>
 tanner,<:TannerClinePodcast:1212977753868083200>
 klenk,<:Klonk:1205274555090866176>
@@ -114,3 +114,4 @@ pbj,<a:3144dancingbanana:1241027833510363146>
 hannigan,<a:3144dancingbanana:1241027833510363146>
 castro,<:castro:1261694844909129739>
 mac, <:mac:1261888490526740523>
+fan,<:screw_you_koffard:1338384156299886665>,<:screw_you_again_koffard:1338384182979727473>

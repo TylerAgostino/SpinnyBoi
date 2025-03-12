@@ -38,7 +38,7 @@ summarize_ollama = ChatOllama(
 
 workflow = StateGraph(state_schema=State)
 trimmer = trim_messages(
-    max_tokens=550,
+    max_tokens=800,
     strategy='last',
     token_counter=chat_ollama,
     include_system=True,
@@ -61,9 +61,10 @@ Be brief and direct in your responses while satisfying the user's request and ma
                   MessagesPlaceholder(variable_name="user_prompt")],
     )
     chain = prompt | chat_ollama
+    filtered_messages = trimmer.invoke(state["messages"])
     response = chain.invoke({
         "user_prompt": state["user_prompt"],
-        "chat_history": state["messages"]
+        "chat_history": filtered_messages
     }
     )
     return {"messages": [response]}

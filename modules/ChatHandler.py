@@ -18,8 +18,8 @@ chat_ollama = ChatOllama(
 
 @traceable
 async def respond_in_chat(message, bot_user):
-    # channel = bot_user.get_channel(message.channel.id)
-    channel = bot_user.get_channel(1292642327566745601)
+    channel = bot_user.get_channel(message.channel.id)
+    # channel = bot_user.get_channel(1292642327566745601)
     history = [m async for m in channel.history(limit=100, before=message)]
     history.reverse()
     past_chat_messages = [

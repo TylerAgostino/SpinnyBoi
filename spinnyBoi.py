@@ -69,7 +69,7 @@ class MyClient(discord.Client):
                 msg_channel = message.channel
                 history = [m async for m in msg_channel.history(limit=80, before=message)]
                 history.reverse()
-                response = ChatHandler.respond_in_chat(message, history, self.user)
+                response = await ChatHandler.respond_in_chat(message, self)
                 await message.channel.send(response)
 
         if message.author.id == 292447304395522048 and random.randint(0, 100) < 20:

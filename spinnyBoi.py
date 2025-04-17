@@ -39,6 +39,9 @@ class MyClient(discord.Client):
         if message.author == self.user:
             return
 
+        if message.channel.id == 1362287075142930442: # Complaining
+            await message.delete()
+
         if str(message.content).lower().startswith('/spin'):
             bot_response = await message.channel.send('Working on it. Go easy on me, I\'m still in beta.')
             try:

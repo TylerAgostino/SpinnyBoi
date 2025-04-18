@@ -53,7 +53,7 @@ async def respond_in_chat(message, bot_user):
             Use tools to generate proper attachments only if required."""),
             *past_chat_messages,
             ("user", json.dumps({
-                "user": message.author.nick if message.author.nick else message.author.name,
+                "user": message.author.nick if 'nick' in message.author and message.author.nick else message.author.name,
                 "user_id": message.author.id,
                 "content": message.content,
                 "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),

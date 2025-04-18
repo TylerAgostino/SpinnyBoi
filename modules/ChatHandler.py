@@ -23,15 +23,20 @@ async def respond_in_chat(message, bot_user):
     history = [m async for m in channel.history(limit=100, before=message)]
     history.reverse()
     past_chat_messages = [
-        SystemMessage(json.dumps(
-        {
-            "user": m.author.nick if 'nick' in message.author and m.author.nick else m.author.name,
-            "user_id": m.author.id,
-            "content": m.content,
-            "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        )) for m in history
+
     ]
+    for m in history:
+        try:
+            past_chat_messages.append(SystemMessage(json.dumps(
+            {
+                "user": m.author.nick if m.author.nick else m.author.name,
+                "user_id": m.author.id,
+                "content": m.content,
+                "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )))
+        except:
+            pass
 
     past_chat_messages=trim_messages(past_chat_messages,
                   max_tokens=1000,
@@ -53,7 +58,7 @@ async def respond_in_chat(message, bot_user):
             Use tools to generate proper attachments only if required."""),
             *past_chat_messages,
             ("user", json.dumps({
-                "user": message.author.nick if 'nick' in message.author and message.author.nick else message.author.name,
+                "user": message.author.nick if message.author.nick else message.author.name,
                 "user_id": message.author.id,
                 "content": message.content,
                 "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),

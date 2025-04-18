@@ -25,7 +25,7 @@ async def respond_in_chat(message, bot_user):
     past_chat_messages = [
         SystemMessage(json.dumps(
         {
-            "user": m.author.nick if m.author.nick else m.author.name,
+            "user": m.author.nick if 'nick' in message.author and m.author.nick else m.author.name,
             "user_id": m.author.id,
             "content": m.content,
             "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),

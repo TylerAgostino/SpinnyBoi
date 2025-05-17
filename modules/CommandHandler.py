@@ -9,7 +9,6 @@ import typing  # For type hinting
 import functools
 import asyncio
 import random
-import webuiapi
 import dataframe_image as dfi
 import uuid
 
@@ -158,17 +157,6 @@ class CommandHandler:
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(self.driver)
         return self.get_message(), file
-
-    def stablediffusion(self, prompt):
-        client = webuiapi.WebUIApi(host='192.168.1.125')
-
-        result1 = client.txt2img(prompt=prompt,
-                                 cfg_scale=7
-                                 )
-        fh = io.BytesIO()
-        result1.image.save(fh, format="PNG")
-        fh.seek(0)
-        return prompt, [fh], 'stablediffusion.png'
 
     def preset(self, preset_name):
         try:

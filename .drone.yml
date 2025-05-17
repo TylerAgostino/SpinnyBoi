@@ -13,6 +13,7 @@ steps:
       registry: registry.hub.docker.com
       repo: registry.hub.docker.com/tyleragostino/spinnyboi
       tags: latest
+      cache_from: "registry.hub.docker.com/tyleragostino/spinnyboi:latest"
     when:
       branch:
         - main

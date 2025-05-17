@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Copy and install requirements first for better caching
 COPY requirements.txt .
-RUN pip3 install --user --no-cache-dir -r requirements.txt
+RUN pip3 install --user --no-cache-dir --no-warn-script-location -r requirements.txt
 
 # Second stage: runtime
 FROM python:3.12-slim

@@ -3,8 +3,6 @@ from langsmith import traceable
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
 import json
-from langchain_community.tools import WikipediaQueryRun
-from langchain_community.utilities import WikipediaAPIWrapper
 
 
 chat_ollama = ChatOllama(

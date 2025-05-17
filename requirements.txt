@@ -8,3 +8,4 @@ matplotlib
 langchain-ollama
 langchain
 langgraph
+transformers

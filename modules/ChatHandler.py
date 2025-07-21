@@ -8,10 +8,11 @@ import json
 chat_ollama = ChatOllama(
     base_url="http://192.168.1.125:11434",
     # model="deepseek-r1:14b",
-    #model="llama3.1:8b-instruct-fp16",
+    model="llama3.1:8b",
     # model="gemma3:1b",
-    model="mistral:7b-instruct",
+    # model="mistral:7b-instruct",
     temperature=0.2
+
 )
 
 @traceable
@@ -41,40 +42,44 @@ async def respond_in_chat(message, bot_user):
                   token_counter=chat_ollama)
 
     agent = create_react_agent(chat_ollama, tools=[])
-    response = agent.invoke(
-        {"messages": [
-            ("system",
-             f"""You are a helpful, but sarcastic and snarky chatbot called SpinnyBoi. Your job is to immediately satisfy the user's request
+    rq =    {"messages": [
+        ("system",
+         f"""You sarcastic and snarky person called SpinnyBoi. Your job is to respond
              in a way that is natural to the ongoing conversation in the channel. You are given the last few messages in the channel in 
-             JSON format. The final JSON message is the one that triggers your response, so respond accordingly. Format
-             your response as a JSON object with the following structure:
-                {{
-                    "user": "SpinnyBoi",
-                    "content": <response>
-                }}
-            
-            Use tools to generate proper attachments only if required."""),
-            *past_chat_messages,
-            ("user", json.dumps({
-                "user": message.author.nick if message.author.nick else message.author.name,
-                "user_id": message.author.id,
-                "content": message.content,
-                "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            }))
+             JSON format. The final JSON message is the one that triggers your response, so respond accordingly."""),
+        *past_chat_messages,
+        ("user", json.dumps({
+            "user": message.author.nick if message.author.nick else message.author.name,
+            "user_id": message.author.id,
+            "content": message.content,
+            "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }))
 
-        ]}
-    )
-    msg = response["messages"][-1].content
-    msg = msg.replace("\\", "\\\\")
-    if '</think>' in msg:
-        msg = msg.split('</think>')[1]
-    if not msg.startswith("{"):
-        msg = msg.split("{")[1]
-        msg = "{" + msg
-    if '}' in msg and not msg.endswith("}"):
-        msg = msg.split("}")[0]
-        msg = msg + "}"
-    final_json = json.loads(msg)
-    response = final_json["content"]
-    response = response.replace("\\n", "\n").replace("\\", "")
-    return response
+    ]}
+    x = 0
+    r = None
+    while x < 3 and r is None:
+        response = agent.invoke(rq)
+        msg = response["messages"][-1].content
+        msg = msg.replace("\\", "\\\\")
+        if '</think>' in msg:
+            msg = msg.split('</think>')[1]
+        try:
+            if not msg.startswith("{"):
+                msg = msg.split("{")[1]
+                msg = "{" + msg
+            if '}' in msg and not msg.endswith("}"):
+                msg = msg.split("}")[0]
+                msg = msg + "}"
+            final_json = json.loads(msg)
+            response = final_json["content"]
+            response = response.replace("\\n", "\n").replace("\\", "")
+            r = response
+        except IndexError:
+            pass
+        except json.JSONDecodeError:
+            pass
+    if r is None:
+        return msg
+    else:
+        return r

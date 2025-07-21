@@ -11,7 +11,7 @@ chat_ollama = ChatOllama(
     model="llama3.1:8b",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
-    temperature=0.2
+    temperature=0.8
 
 )
 

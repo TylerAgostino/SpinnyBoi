@@ -83,3 +83,11 @@ async def respond_in_chat(message, bot_user):
         return msg
     else:
         return r
+
+def working_on_it():
+    response = chat_ollama.invoke([
+            ("user", "Give me a sarcastic response buying time until you can finish a task. You're working on it, go easy! Respond only with the text, no JSON or other formatting."),
+        ]
+    )
+    msg = response.content
+    return msg

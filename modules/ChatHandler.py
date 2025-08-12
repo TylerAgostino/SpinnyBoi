@@ -14,6 +14,15 @@ chat_ollama = ChatOllama(
     temperature=0.8
 
 )
+chat_ollama_fast = ChatOllama(
+    base_url="http://192.168.1.125:11434",
+    # model="deepseek-r1:14b",
+    model="llama3.2:3b",
+    # model="gemma3:1b",
+    # model="mistral:7b-instruct",
+    temperature=0.8
+
+)
 
 @traceable
 async def respond_in_chat(message, bot_user):
@@ -85,8 +94,18 @@ async def respond_in_chat(message, bot_user):
         return r
 
 def working_on_it():
-    response = chat_ollama.invoke([
-            ("user", "Give me a sarcastic response buying time until you can finish a task. You're working on it, go easy! Respond only with the text, no JSON or other formatting."),
+    response = chat_ollama_fast.invoke([
+            ("user", """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
+Rules:
+- Output exactly one message.
+- Be playful and sarcastic, slightly impatient, but not offensive.
+- Maximum 12 words.
+- Do not offer options, explanations, or follow-up questions.
+- Do not ask if they want more.
+- Do not put the message in quotes.
+
+Example styles: "I’m working on it, relax.", "Hold your horses, speed racer.", "Patience, mortal."
+"""),
         ]
     )
     msg = response.content

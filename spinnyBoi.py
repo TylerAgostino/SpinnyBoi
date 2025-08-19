@@ -93,6 +93,5 @@ def main():
     bot_token = os.getenv('BOT_TOKEN')
     client.run(bot_token)
 
-
 if __name__ == '__main__':
     main()

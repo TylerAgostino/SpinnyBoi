@@ -98,6 +98,7 @@ class CommandHandler:
             `/spin <tab> <filter>` - Spins a wheel with the options from the tab <tab> filtered by <filter>. Filter is optional.
             `/spinfo` - Returns this help message
             `/spinfo <preset> <tab>` - Returns the odds of each option for the given tab and preset. Both a tab and preset are required, and the tab must be used in the preset.
+            `/spinspect` - Sends a request to the session auditor to restart and post its status.
             You can use `<`, `>`, `<=`, `>=`, `=`, and `<>` to filter numeric columns, or `<>` (not equal), `:` (contains), and `=` (exactly equal) to filter text columns. Use `|` to give an OR condition. Use `!weight=<column_name>` to weight the options by the values in <column_name>.
             Presets, tabs, and their columns and values are defined in the GSheet. If you don't know where that is, ask an admin, like Koffard. 
             """
@@ -312,3 +313,11 @@ class CommandHandler:
         messages = [message for message in fp.readlines()]
         lines = len(messages)
         return messages[int(int(roll * 100) % lines)].strip('\n')
+
+    def spect(self, *args, **kwargs):
+        import requests
+        webhook_url = "http://192.168.1.125:9996/api/stacks/webhooks/b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
+        req = requests.post(webhook_url)
+        logging.info(f'Request sent to webhook: {req}')
+        return "I've sent a request to restart the auditor. It should post shortly."
+

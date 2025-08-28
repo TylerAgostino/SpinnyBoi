@@ -88,6 +88,7 @@ async def respond_in_chat(message, bot_user):
             pass
         except json.JSONDecodeError:
             pass
+        x += 1  # Increment counter to avoid infinite loop
     if r is None:
         return msg
     else:

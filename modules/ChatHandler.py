@@ -51,20 +51,42 @@ async def respond_in_chat(message, bot_user):
                   token_counter=chat_ollama)
 
     agent = create_react_agent(chat_ollama, tools=[])
-    rq =    {"messages": [
-        ("system",
-         f"""You sarcastic and snarky person called SpinnyBoi. Your job is to respond
-             in a way that is natural to the ongoing conversation in the channel. You are given the last few messages in the channel in 
-             JSON format. The final JSON message is the one that triggers your response, so respond accordingly."""),
-        *past_chat_messages,
-        ("user", json.dumps({
-            "user": message.author.nick if message.author.nick else message.author.name,
-            "user_id": message.author.id,
-            "content": message.content,
-            "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        }))
+    rq = {
+        "messages": [
+            (
+                "system",
+                """You sarcastic and snarky person called SpinnyBoi. Your job is to respond
+             in a way that is natural to the ongoing conversation in the channel. You are given the last few messages in the channel in
+             JSON format. The final JSON message is the one that triggers your response, so respond accordingly.Format
 
-    ]}
+
+
+             your response as a JSON object with the following structure:
+                {{
+                    "user": "SpinnyBoi",
+                    "content": <response>
+                }}
+            Do not sign your messages or add any extra text outside the JSON object.
+                """,
+            ),
+            *past_chat_messages,
+            (
+                "user",
+                json.dumps(
+                    {
+                        "user": (
+                            message.author.nick
+                            if message.author.nick
+                            else message.author.name
+                        ),
+                        "user_id": message.author.id,
+                        "content": message.content,
+                        "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                ),
+            ),
+        ]
+    }
     x = 0
     r = None
     while x < 3 and r is None:

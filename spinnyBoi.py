@@ -43,7 +43,29 @@ class MyClient(discord.Client):
             await message.delete()
             return
 
-        if str(message.content).lower().startswith('/spin'):
+        if str(message.content).lower().startswith("/spincident"):
+            try:
+                subject = str(message.content).lower().removeprefix("/spincident").strip(" ")
+                msg = f"""
+                >>> # Incident Poll: {subject}
+                :regional_indicator_a: No Action
+                :regional_indicator_b: 1 Point
+                :regional_indicator_c: 2 Points
+                :regional_indicator_d: 3 Points
+                :regional_indicator_e: Other
+                """
+                bot_response = await message.channel.send(msg)
+                await bot_response.add_reaction("🇦")
+                await bot_response.add_reaction("🇧")
+                await bot_response.add_reaction("🇨")
+                await bot_response.add_reaction("🇩")
+                await bot_response.add_reaction("🇪")
+            except Exception as e:
+                print(str(e))
+                await message.channel.send("Something went wrong.")
+            return
+
+        if str(message.content).lower().startswith("/spin"):
             try:
                 msg = ChatHandler.working_on_it()
                 bot_response = await message.channel.send(msg)

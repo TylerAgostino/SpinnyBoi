@@ -52,7 +52,7 @@ class MyClient(discord.Client):
                 :regional_indicator_b: 1 Point
                 :regional_indicator_c: 2 Points
                 :regional_indicator_d: 3 Points
-                :regional_indicator_e: Other
+                :regional_indicator_e: Other (Please explain below)
                 """
                 bot_response = await message.channel.send(msg)
                 await bot_response.add_reaction("🇦")

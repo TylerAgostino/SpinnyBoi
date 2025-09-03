@@ -2,6 +2,7 @@ import os
 import discord
 import logging
 import random
+import datetime
 from modules import CommandHandler, ChatHandler
 
 status_message = "/spin"

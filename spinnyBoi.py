@@ -46,13 +46,18 @@ class MyClient(discord.Client):
         if str(message.content).lower().startswith("/spincident"):
             try:
                 subject = str(message.content).lower().removeprefix("/spincident").strip(" ")
+                next_sunday_date = (datetime.datetime.now() + datetime.timedelta((6 - datetime.datetime.now().weekday()) % 7))
+                next_sunday_date_9pm = next_sunday_date.replace(hour=21, minute=0, second=0, microsecond=0)
+                next_sunday_date_str = f'<t:{int(next_sunday_date_9pm.timestamp())}:R>'
                 msg = f"""
                 >>> # Incident Poll: {subject}
-                :regional_indicator_a: No Action
-                :regional_indicator_b: 1 Point
-                :regional_indicator_c: 2 Points
-                :regional_indicator_d: 3 Points
-                :regional_indicator_e: Other (Please explain below)
+:regional_indicator_a: No Action
+:regional_indicator_b: 1 Point
+:regional_indicator_c: 2 Points
+:regional_indicator_d: 3 Points
+:regional_indicator_e: Other (Please explain below)
+
+-# Voting ends {next_sunday_date_str}
                 """
                 bot_response = await message.channel.send(msg)
                 await bot_response.add_reaction("🇦")

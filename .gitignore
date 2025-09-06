@@ -1,3 +1,5 @@
 /.idea/
 recording.gif
 /venv
+**/__pycache__/
+.zed

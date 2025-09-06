@@ -41,4 +41,7 @@ COPY --from=builder /root/.local /root/.local
 # Copy application code
 COPY . .
 
+# Create database directory and ensure it has proper permissions
+RUN mkdir -p /app/data && chmod 777 /app/data
+
 ENTRYPOINT ["python", "spinnyBoi.py"]

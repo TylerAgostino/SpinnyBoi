@@ -9,3 +9,5 @@ langchain-ollama
 langchain
 langgraph
 transformers
+aiosqlite
+pytz

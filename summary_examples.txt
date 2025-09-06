@@ -1,0 +1,8 @@
+# Format: thread_id,message_id
+# Each line contains a pair of IDs:
+# - thread_id: ID of a thread to use as example input for summarization
+# - message_id: ID of a message containing the example output (summary)
+#
+# Example:
+# 12345678901234567,98765432109876543
+1410747553695400088,1412631816346665021

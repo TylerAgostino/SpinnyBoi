@@ -16,6 +16,15 @@ chat_ollama = ChatOllama(
     # model="mistral:7b-instruct",
     temperature=0.8,
 )
+
+chat_ollama_low_temp = ChatOllama(
+    base_url="http://192.168.1.125:11434",
+    # model="deepseek-r1:14b",
+    model="llama3.1:8b",
+    # model="gemma3:1b",
+    # model="mistral:7b-instruct",
+    temperature=0.2,
+)
 chat_ollama_fast = ChatOllama(
     base_url="http://192.168.1.125:11434",
     # model="deepseek-r1:14b",
@@ -340,7 +349,7 @@ Notes:
         messages.append(HumanMessage(content=user_message))
 
         # Invoke the LLM for summarization - using the larger model for better summarization quality
-        response = chat_ollama.invoke(messages)
+        response = chat_ollama_low_temp.invoke(messages)
 
         # Return the summarized content
         return response.content

@@ -128,7 +128,7 @@ class MyClient(discord.Client):
                 if not (
                     msg.author.bot
                     or msg.author.name == "SpinnyBoi"
-                    or msg.id == 1412494921461399673
+                    or msg.id == 1414731533557956709
                 ):
                     author_name = (
                         msg.author.nick if msg.author.nick else msg.author.name

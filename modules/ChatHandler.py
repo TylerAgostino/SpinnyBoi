@@ -304,24 +304,24 @@ E10: During open qualifying, cars not on legal timed and push laps must avoid im
 Overtaking overlap is defined as the front axle of the overtaking car alongside the rear axle of the defending car.
 ```
 
-6. Provide a concise but comprehensive steward's decision (200-400 words) with the following structure:
+6. Provide a concise steward's decision (50-200 words) with the following structure:
 ```
 Drivers: [Names of drivers involved]
 
-Incident: [Brief description of what happened]
+Incident: [Brief description of what happened in one or two sentences]
 
 Decision: [The ruling voted on by the stewards]
 
-[Summary of the reasoning behind the decision]
+[Summary of the reasoning behind the decision in 2-3 sentences]
 ```
 Notes:
-- Use a professional, authoritative tone as a racing steward.
+- Use a professional tone, avoid slang or casual language.
 - Be fair and impartial in your assessment.
 - Even if the thread doesn't contain much discussion, provide a brief but complete steward's report.
 - Consider the poll results as steward's input, do not make your own independent assessment.
-- If certain details are missing, make reasonable assumptions based on available information.
-- Pay special attention to parent messages of the thread as they often contain the initial incident report.
 - Do not reference specific users or quotes from the thread in your decision.
+- Avoid personal opinions, focus on the facts and rules.
+- Don't include every detail, just the key points relevant to the decision.
 
 """
 
@@ -332,18 +332,18 @@ Notes:
         if example_summary:
             example_thread_messages, example_summary_text = example_summary
             example_user_message = (
-                "Here's the conversation history to summarize:\n"
+                "Here's an example conversation about an incident:\n"
                 + json.dumps(example_thread_messages, indent=2)
             )
             messages.append(HumanMessage(content=example_user_message))
             messages.append(
                 SystemMessage(
-                    content=f"Here's an example of a well-structured steward's decision that follows the required format:\n\n{example_summary_text}"
+                    content=f"Here's an example of a well written decision for that example conversation:\n\n{example_summary_text}"
                 )
             )
 
         # Add the current thread to summarize
-        user_message = "Here's the conversation history to summarize:\n" + json.dumps(
+        user_message = "Here's the conversation history you are to summarize:\n" + json.dumps(
             formatted_messages, indent=2
         )
         messages.append(HumanMessage(content=user_message))

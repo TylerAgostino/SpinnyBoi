@@ -360,7 +360,7 @@ class WheelSpinner:
 
             # Create text with fly-in animation, left-aligned
             item_text = draw.Text(
-                f'{i+1}. {str(text).capitalize()}',
+                f'{i+1}. {str(text).title()}',
                 font_size,
                 x_position,  # X position - based on column
                 y_position,  # Y position - based on row

@@ -3,8 +3,8 @@ from modules import WheelSpinner
 
 
 class TestWheelSpinner(unittest.TestCase):
-    def setUp(self):
-        self.wheel = WheelSpinner.WheelSpinner(['a', 'b', '3', '4', '5',])
+    # def setUp(self):
+        # self.wheel = WheelSpinner.WheelSpinner(['a', 'b', '3', '4', '5',])
 
     def test_spin(self):
         gif = self.wheel.return_gif()

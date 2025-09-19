@@ -4,7 +4,7 @@ from modules import WheelSpinner
 
 class TestWheelSpinner(unittest.TestCase):
     def setUp(self):
-        self.wheel = WheelSpinner.WheelSpinner()
+        self.wheel = WheelSpinner.WheelSpinner(['a', 'b', '3', '4', '5',])
 
     def test_spin(self):
         gif = self.wheel.return_gif()
@@ -78,3 +78,22 @@ class TestWheelSpinner(unittest.TestCase):
         text, max_length = add_line_breaks(text)
         font_size = get_font_size(text, max_length, 100, 40)
         return font_size
+
+    def test_shuffle(self):
+        options = ['a', 'b', '3', '4', '5',
+                   'option 6', 'option 7', 'option 8', 'option 9', 'option 10',
+                   #   'option 11', 'option 12', 'option 13', 'option 14', 'option 15',
+                   ]
+        wheel = WheelSpinner.WheelSpinner.create_spindex(options)
+        file = wheel.return_gif()
+        with open('out.gif', 'wb') as outfile:
+            file.seek(0)
+            outfile.write(file.read())
+
+    def test_many_shuffle(self):
+        options = 'Henry Morse,Giovanni Romano,Henry Libermann,Scott Fleming4,Jacob Kacik,Kyle Blevins,Alexander Bueler,Jason Lee17,Tyler Agostino,Alex Koffard,Austin Tucker2,Aaron Thacker,Christopher Flamion,Ron Wolfe,Evan Campbell2,Christopher Bright2,Darren Baie,Justin Hall,Todd Madole,Erik Ronnenberg,Tyler Carlton,Alex Marsh King,Greg Beckman,Adam Joseph Mailhot,Brooks Clayton,Ryan Verhulst,Gabriel Adan Gonzalez,Jeremy Castro,Carson Catlin,Ben C Williams,Jordan Babcock,Sebastian Klose,Mathieu Dupuis,Austin Farr,Corey Barrett,Ryan Murphy6,Shane Cameron,Justin Bresee,Blake Gambrell,Anthony Saletta,Landon Lindner,Stefan Pursell,Alexander Klenk,Kyle Smith10,Tyler Vietanen,Tanner Cline,Jon Combs,Brian Bruzzi,Josh Freed'.split(',')
+        wheel = WheelSpinner.WheelSpinner.create_spindex(options)
+        file = wheel.return_gif()
+        with open('out.gif', 'wb') as outfile:
+            file.seek(0)
+            outfile.write(file.read())

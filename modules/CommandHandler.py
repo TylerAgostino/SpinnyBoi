@@ -103,6 +103,8 @@ class CommandHandler:
             `/spinfo` - Returns this help message
             `/spinfo <preset> <tab>` - Returns the odds of each option for the given tab and preset. Both a tab and preset are required, and the tab must be used in the preset.
             `/spinspect` - Sends a request to the session auditor to restart and post its status.
+            `/spintermix A,B,C` - Gives A, B, and C in a random order, one at a time, in a GIF animation.
+            
             You can use `<`, `>`, `<=`, `>=`, `=`, and `<>` to filter numeric columns, or `<>` (not equal), `:` (contains), and `=` (exactly equal) to filter text columns. Use `|` to give an OR condition. Use `!weight=<column_name>` to weight the options by the values in <column_name>.
             Presets, tabs, and their columns and values are defined in the GSheet. If you don't know where that is, ask an admin, like Koffard.
             """
@@ -181,6 +183,20 @@ class CommandHandler:
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(self.driver)
         return self.get_message(), file
+
+    def termix(self, options):
+        """Creates an animation that shows items flying in one at a time in random order
+
+        Args:
+            options: Comma-separated list of items to display in random order
+
+        Returns:
+            A message and a GIF animation file
+        """
+        opts_list = [opt.strip() for opt in options.split(",")]
+        wheel = WheelSpinner.WheelSpinner.create_spindex(opts_list)
+        file = wheel.return_gif(self.driver)
+        return f"{self.get_message()}", file
 
     def preset(self, preset_name):
         try:

@@ -243,3 +243,192 @@ class WheelSpinner:
             if self.weighted_options[i] == self.repeated_options[0]:
                 self.weighted_options.insert(0, self.weighted_options.pop(i))
                 return
+
+    @staticmethod
+    def create_spindex(options):
+        """Creates a WheelSpinner instance configured for spindex animation instead of wheel spin.
+
+        Args:
+            options: List of strings representing items to be displayed in random order
+
+        Returns:
+            WheelSpinner instance configured for spindex animation
+        """
+
+        # Convert string options to WheelOption-like objects
+        class SimpleOption:
+            def __init__(self, text):
+                self.option = text
+                self.weight = 1
+
+        option_objects = [SimpleOption(opt) for opt in options]
+
+        # Create and configure the spinner
+        spinner = WheelSpinner(option_objects)
+        # Replace the wheel animation with the spindex animation
+        spinner.animation = spinner.generate_spindex_animation()
+        return spinner
+
+    def generate_spindex_animation(self):
+        """Generates an animation of items flying in one at a time from right to left.
+        Items appear in random order and end up left-aligned in the image.
+        Items are organized in columns with a maximum of 15 items per column.
+
+        Returns:
+            drawsvg Drawing object with the animation
+        """
+        # 1 in 30 chance of comic sans
+        if random.randint(0, 30) == 0:
+            font = "Comic Sans MS"
+        else:
+            font = "Shantell Sans"
+
+        # Randomize the order of items for the animation
+        random.shuffle(self.weighted_options)
+
+        # Calculate timing for each item
+        total_items = len(self.weighted_options)
+        # Each item gets equal time slice with a small gap at the beginning and end
+        start_delay = 0.05  # Initial delay before first item
+        end_padding = 0.15  # Time left at the end after all items have appeared
+        # Spread items out evenly across the animation time
+        total_animation_time = 1.0 - start_delay - end_padding
+
+        # Column layout configuration
+        max_items_per_column = 25
+        num_columns = math.ceil(total_items / max_items_per_column)
+
+        # Calculate column widths based on the longest item in each column
+        column_widths = [0] * num_columns
+        for i, option in enumerate(self.weighted_options):
+            col_idx = i // max_items_per_column
+            text_len = len(option.option) + 3  # +3 for numbering and period
+            column_widths[col_idx] = max(column_widths[col_idx], text_len)
+
+        base_font_size = 10
+
+        # Create drawing canvas
+        width = sum(column_widths) * (base_font_size)
+        d = draw.Drawing(
+            height=200,
+            width=width,
+            origin="center",
+            animation_config=draw.types.SyncedAnimationConfig(
+                duration=10,  # Seconds - adjusted for better timing
+                show_playback_progress=False,
+                show_playback_controls=False,
+                pause_on_load=False,
+                repeat_count=0,
+                fill="freeze",
+            ),
+            font_family=font,
+        )
+        # Add each item with its animation
+        for i, option in enumerate(self.weighted_options):
+            # Calculate timing for this item - make each item appear sequentially
+            # Distribute items evenly across total time, with a slight overlap
+            item_start_time = start_delay + (i * (total_animation_time / total_items))
+            # Convert to 0-1 scale for key_times
+            appear_at = item_start_time
+
+            # Create text element for this item
+            text = option.option  # No line breaks, keep as one line
+
+            # Determine which column this item belongs to
+            column_index = i // max_items_per_column
+            row_index = i % max_items_per_column
+
+            # Calculate responsive font size based on text length
+            font_size = base_font_size # min(base_font_size, 250 / max(len(text), 1))
+
+            # Calculate positions
+            # Column positions are calculated from left to right
+            # Each column starts at x = -90 and columns are spaced based on the width of the items
+            column_spacing = 5  # Space between columns
+
+            # Calculate position based on previous columns' widths
+            x_position = (width/2) + 90  # Start at margin
+            for col in range(column_index):
+                # Add width of previous columns plus spacing
+                x_position += column_widths[col] * (font_size * 0.55) + column_spacing
+
+            # Row positions are calculated from top to bottom within each column
+            row_height = min(
+                200 / max(max_items_per_column, 1), 20
+            )  # Distribute rows evenly with max height
+            y_position = -92 + (row_index * row_height)
+
+            # Create text with fly-in animation, left-aligned
+            item_text = draw.Text(
+                f'{i+1}. {str(text).capitalize()}',
+                font_size,
+                x_position,  # X position - based on column
+                y_position,  # Y position - based on row
+                text_anchor="start",  # Left-aligned text
+                fill="black",  # Keep text black for better readability
+                opacity=0,
+            )
+
+            # Animate the text flying in
+            item_text.append(
+                draw.AnimateTransform(
+                    "translate",
+                    0.2,  # Faster animation for each individual item
+                    begin=appear_at,
+                    repeatCount="0",
+                    fill="freeze",
+                    from_or_values=f"0,0; -{width + 90},0",  # From right to final position (start further right)
+                    # key_times=f"0; {appear_at}; {appear_at + 0.2}",
+                )
+            )
+
+            # Fade in with a quick transition
+            item_text.append(
+                draw.Animate(
+                    "opacity",
+                    0.2,  # Quick fade-in (0.2 seconds)
+                    from_or_values="0; 1",
+                    key_times=f"0; {appear_at}",
+                    repeatCount="0",
+                    fill="freeze",
+                )
+            )
+
+            d.append(item_text)
+
+        # No title needed
+        x_scale = max(1, int(2000 / width))
+        y_scale = int(max_items_per_column/min(len(self.weighted_options), max_items_per_column)) * 4
+        scale = min(x_scale, y_scale)
+        d.set_pixel_scale(scale)  # Set number of pixels per geometry unit
+        return d
+
+    @staticmethod
+    def add_line_breaks(text, soft_wrap=20):
+        # a new string of words from the text until we reach the soft_wrap limit, only adding whole words
+        new_text = ""
+        current_line = ""
+        longest_line = 0
+        for word in text.split(" "):
+            if len(current_line) + len(word) > soft_wrap:
+                if len(current_line) > longest_line:
+                    longest_line = len(current_line)
+                new_text += current_line + "\n"
+                current_line = ""
+            current_line += word + " "
+        if len(current_line) > longest_line:
+            longest_line = len(current_line)
+        new_text += current_line
+        return new_text, longest_line
+
+    @staticmethod
+    def get_font_size(text, longest_line, max_width, max_height):
+        font_size = 1
+        while True:
+            width = longest_line * 0.5 * font_size
+            height = (1 + str(text).count("\n")) * font_size * 1.2
+            if width <= max_width and height <= max_height:
+                font_size += 1
+            else:
+                font_size -= 1
+                return font_size

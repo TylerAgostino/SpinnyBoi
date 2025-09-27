@@ -104,6 +104,7 @@ class CommandHandler:
             `/spinfo <preset> <tab>` - Returns the odds of each option for the given tab and preset. Both a tab and preset are required, and the tab must be used in the preset.
             `/spinspect` - Sends a request to the session auditor to restart and post its status.
             `/spintermix A,B,C` - Gives A, B, and C in a random order, one at a time, in a GIF animation.
+            `/spintake` - Returns a table of registered drivers.
             
             You can use `<`, `>`, `<=`, `>=`, `=`, and `<>` to filter numeric columns, or `<>` (not equal), `:` (contains), and `=` (exactly equal) to filter text columns. Use `|` to give an OR condition. Use `!weight=<column_name>` to weight the options by the values in <column_name>.
             Presets, tabs, and their columns and values are defined in the GSheet. If you don't know where that is, ask an admin, like Koffard.
@@ -386,3 +387,13 @@ class CommandHandler:
         req = requests.post(webhook_url)
         logging.info(f"Request sent to webhook: {req}")
         return "I've sent a request to restart the auditor. It should post shortly."
+
+    def take(self, *args, **kwargs):
+        import requests
+
+        webhook_url = "http://192.168.1.125:5678/webhook/d546e983-f751-407c-9582-b605601e2a67"
+        req = requests.get(webhook_url)
+        logging.info(f"Request sent to webhook: {req}")
+        text = req.text
+        md_file = io.StringIO(text)
+        return "Here you go!", md_file, "registrations.md"

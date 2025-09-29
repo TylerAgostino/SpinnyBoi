@@ -90,7 +90,10 @@ class CommandHandler:
                 f'Command {command} failed with args {" ".join(*args)}: {str(e)}'
             )
             logging.error(e)
-            return "You're using a valid command, but something went wrong."
+            return f"""You're using a valid command, but something went wrong.
+            ```{str(e)}```
+            """
+
 
     def fo(self, *args):
         # if no arguments are passed, return the help message

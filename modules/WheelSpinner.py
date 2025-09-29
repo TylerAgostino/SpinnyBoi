@@ -96,7 +96,6 @@ class WheelSpinner:
             fh.seek(0)
         finally:
             shutil.rmtree(run_id)
-            driver.close()
         logging.info("Done generating gif")
         return fh
 

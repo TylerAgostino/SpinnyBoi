@@ -137,7 +137,7 @@ class WheelCog(commands.Cog):
         "preset_name",
         str,
         required=True,
-        # autocomplete=discord.utils.basic_autocomplete(get_presets),
+        autocomplete=discord.utils.basic_autocomplete(get_presets),
     )
     async def spin_preset(self, ctx, preset_name):
         """Spins a preset wheel or colleciton of wheels based on the provided preset name"""
@@ -192,7 +192,7 @@ class WheelCog(commands.Cog):
         "preset_name",
         str,
         required=True,
-        # autocomplete=discord.utils.basic_autocomplete(get_presets),
+        autocomplete=discord.utils.basic_autocomplete(get_presets),
         description="The name of the preset to get info about",
     )
     @discord.option(
@@ -200,7 +200,7 @@ class WheelCog(commands.Cog):
         str,
         required=True,
         description="The name of the tab to get info about (required if preset_name is provided)",
-        # autocomplete=discord.utils.basic_autocomplete(get_preset_tabs),
+        autocomplete=discord.utils.basic_autocomplete(get_preset_tabs),
     )
     async def spinfo(
         self,

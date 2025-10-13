@@ -12,6 +12,8 @@ services:
             - DATABASE_URL=sqlite:///data/spinny.db
         volumes:
             - spinny_db:/app/data
+        dns:
+            - 1.1.1.1
     ollama:
         image: ollama/ollama:latest
         restart: always

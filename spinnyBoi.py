@@ -24,22 +24,22 @@ bot = commands.Bot(
 )
 
 
-# @bot.listen()
-# async def on_message(message):
-#     if message.author == bot.user:
-#         return
+@bot.listen()
+async def on_message(message):
+    if message.author == bot.user:
+        return
 
-#     if message.channel.id == 1362287075142930442:  # Complaining
-#         await message.delete()
-#         return
+    if message.channel.id == 1362287075142930442:  # Complaining
+        await message.delete()
+        return
 
-#     if bot.user.mentioned_in(message):
-#         async with message.channel.typing():
-#             msg_channel = message.channel
-#             history = [m async for m in msg_channel.history(limit=80, before=message)]
-#             history.reverse()
-#             response = await ChatHandler.respond_in_chat(message, bot)
-#             await message.channel.send(response)
+    if bot.user.mentioned_in(message):
+        async with message.channel.typing():
+            msg_channel = message.channel
+            history = [m async for m in msg_channel.history(limit=80, before=message)]
+            history.reverse()
+            response = await ChatHandler.respond_in_chat(message, bot)
+            await message.channel.send(response)
 
 
 bot.add_cog(IncidentCog(bot))

@@ -18,13 +18,13 @@ import uuid
 import requests
 
 
-def get_presets(a):
+async def get_presets(a):
     base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
     presets_df = pd.read_csv(f"{base_url}/gviz/tq?tqx=out:csv&sheet={'presets'}")
     return [x["Fullname"] for x in presets_df.to_dict("records")]
 
 
-def get_preset_tabs(ctx):
+async def get_preset_tabs(ctx):
     base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
     presets_df = pd.read_csv(f"{base_url}/gviz/tq?tqx=out:csv&sheet={'presets'}")
     preset_name = ctx.options.get("preset_name", "")

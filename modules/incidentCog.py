@@ -1,14 +1,13 @@
+# pyright: basic
 import discord
 from discord.ext import commands, tasks
 import os
 import logging
-import random
 import datetime
-import asyncio
 import json
 import pytz
 from typing import Dict, List, Optional, Tuple
-from modules import CommandHandler, ChatHandler
+from modules import ChatHandler
 from modules.scheduler import (
     init_db,
     schedule_event,
@@ -340,6 +339,7 @@ class IncidentCog(commands.Cog):
             logging.error(f"Error closing poll: {str(ex)}")
 
     @commands.slash_command(name="spincident")
+    @discord.default_permissions(administrator=True)
     @discord.option(
         "subject",
         str,
@@ -348,6 +348,7 @@ class IncidentCog(commands.Cog):
         description="Subject of the incident poll",
     )
     async def spincident(self, ctx, subject: str = ""):
+        """Create an incident poll that closes next Sunday at 9 PM ET."""
         await ctx.defer()
         try:
             now_utc = datetime.datetime.now(datetime.timezone.utc)

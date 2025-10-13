@@ -3,3 +3,4 @@ recording.gif
 /venv
 **/__pycache__/
 .zed
+.venv

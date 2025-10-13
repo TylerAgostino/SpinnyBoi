@@ -1,3 +1,4 @@
+# pyright: basic
 import io
 import os
 import uuid
@@ -425,7 +426,7 @@ class WheelSpinner:
             row_index = i % max_items_per_column
 
             # Calculate responsive font size based on text length
-            font_size = base_font_size # min(base_font_size, 250 / max(len(text), 1))
+            font_size = base_font_size  # min(base_font_size, 250 / max(len(text), 1))
 
             # Calculate positions
             # Column positions are calculated from left to right
@@ -433,7 +434,7 @@ class WheelSpinner:
             column_spacing = 5  # Space between columns
 
             # Calculate position based on previous columns' widths
-            x_position = (width/2) + 90  # Start at margin
+            x_position = (width / 2) + 90  # Start at margin
             for col in range(column_index):
                 # Add width of previous columns plus spacing
                 x_position += column_widths[col] * (font_size * 0.55) + column_spacing
@@ -446,7 +447,7 @@ class WheelSpinner:
 
             # Create text with fly-in animation, left-aligned
             item_text = draw.Text(
-                f'{i+1}. {str(text).title()}',
+                f"{i+1}. {str(text).title()}",
                 font_size,
                 x_position,  # X position - based on column
                 y_position,  # Y position - based on row
@@ -484,7 +485,13 @@ class WheelSpinner:
 
         # No title needed
         x_scale = max(1, int(2000 / width))
-        y_scale = int(max_items_per_column/min(len(self.weighted_options), max_items_per_column)) * 4
+        y_scale = (
+            int(
+                max_items_per_column
+                / min(len(self.weighted_options), max_items_per_column)
+            )
+            * 4
+        )
         scale = min(x_scale, y_scale)
         d.set_pixel_scale(scale)  # Set number of pixels per geometry unit
         return d

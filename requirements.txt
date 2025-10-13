@@ -1,6 +1,6 @@
 selenium
 Pillow
-discord.py
+py-cord
 pandas
 drawsvg[all]
 dataframe_image

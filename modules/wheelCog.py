@@ -16,6 +16,7 @@ import random
 import dataframe_image as dfi
 import uuid
 import requests
+from functools import wraps
 
 
 async def get_presets(a):
@@ -55,6 +56,80 @@ class NoTabError(Exception):
     pass
 
 
+def wheel_command(needs_driver=True):
+    """
+    Decorator for wheel commands that handles common operations:
+    - Defer the response
+    - Set up and tear down webdriver (if needed)
+    - Handle file attachments and responses
+
+    The decorated function will be wrapped to handle common setup/teardown tasks.
+    Original command functions don't need to call defer() or create/quit webdriver.
+
+    Args:
+        needs_driver: Whether the command needs a webdriver instance (default: True)
+    """
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, ctx, *args, **kwargs):
+            # First defer the interaction
+            await ctx.defer()
+            bot_response = await ctx.respond(ChatHandler.working_on_it())
+
+            driver = None
+            try:
+                # Create a driver if needed
+                if needs_driver:
+                    driver = webdriver.Firefox(options=self.driver_options)
+
+                try:
+                    # Call the original function with or without driver
+                    if needs_driver:
+                        result = await func(
+                            self,
+                            ctx=ctx,
+                            bot_response=bot_response,
+                            driver=driver,
+                            *args,
+                            **kwargs,
+                        )
+                    else:
+                        result = await func(
+                            self, ctx=ctx, bot_response=bot_response, *args, **kwargs
+                        )
+                except Exception as e:
+                    result = (f"An error occurred:\n```{str(e)}```", None, None)
+                    logging.error(f"Error in wheel command {func.__name__}: {str(e)}")
+
+                # Process the result if returned
+                if result:
+                    message, files, filename = result
+                    if files is None:
+                        await bot_response.edit(content=message)
+                    else:
+                        if isinstance(files, list):
+                            response_attachment = [
+                                discord.File(fp=f, filename=filename) for f in files
+                            ]
+                        else:
+                            response_attachment = [
+                                discord.File(fp=files, filename=filename)
+                            ]
+                        await bot_response.edit(
+                            content=f"{ctx.author.mention} {message}",
+                            files=response_attachment,
+                        )
+            finally:
+                # Clean up the driver if created
+                if driver:
+                    driver.quit()
+
+        return wrapper
+
+    return decorator
+
+
 class _WheelOption:
     def __init__(self, option: str, weight=1, on_select=None, include_text=None):
         self.option = option
@@ -89,29 +164,6 @@ class WheelCog(commands.Cog):
         lines = len(messages)
         return messages[int(int(roll * 100) % lines)].strip("\n")
 
-    async def process_reply(
-        self, ctx, bot_response, response_text, response_attachment, response_filename
-    ):
-        try:
-            if isinstance(response_attachment, list):
-                response_attachment = [
-                    discord.File(fp=f, filename=response_filename)
-                    for f in response_attachment
-                ]
-            else:
-                response_attachment = (
-                    [discord.File(fp=response_attachment, filename=response_filename)]
-                    if response_attachment
-                    else None
-                )
-            await bot_response.edit(
-                content=f"{ctx.author.mention} {response_text}",
-                files=response_attachment,
-            )
-        except Exception as e:
-            logging.error(f"Error in spin_handler: {str(e)}")
-            await bot_response.edit(content=f"An error occurred: {str(e)}")
-
     @spin.command(name="custom")
     @discord.option(
         "custom_options",
@@ -119,18 +171,18 @@ class WheelCog(commands.Cog):
         required=True,
         description="Comma-separated custom options",
     )
-    async def spin_custom(self, ctx, custom_options: str):
+    async def wrap_custom(self, ctx, custom_options):
         """Spins a wheel with the provided custom options."""
-        await ctx.defer()
-        driver = webdriver.Firefox(options=self.driver_options)
-        bot_response = await ctx.respond(ChatHandler.working_on_it())
-        opts_list = [_WheelOption(opt) for opt in custom_options.split(",")]
+        await self.spin_custom(ctx=ctx, custom_options=custom_options)
+
+    @wheel_command()
+    async def spin_custom(
+        self, ctx, custom_options: str, driver=None, bot_response=None
+    ):
+        opts_list = [_WheelOption(opt.strip()) for opt in custom_options.split(",")]
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(driver)
-        await self.process_reply(
-            ctx, bot_response, self.get_message(), file, "wheel.gif"
-        )
-        driver.quit()
+        return self.get_message(), file, "wheel.gif"
 
     @spin.command(name="preset")
     @discord.option(
@@ -139,17 +191,19 @@ class WheelCog(commands.Cog):
         required=True,
         autocomplete=discord.utils.basic_autocomplete(get_presets),
     )
-    async def spin_preset(self, ctx, preset_name):
+    async def wrap_preset(self, ctx, preset_name):
         """Spins a preset wheel or colleciton of wheels based on the provided preset name"""
-        await ctx.defer()
-        driver = webdriver.Firefox(options=self.driver_options)
-        bot_response = await ctx.respond(ChatHandler.working_on_it())
+        await self.spin_preset(ctx=ctx, preset_name=preset_name)
+
+    @wheel_command()
+    async def spin_preset(self, ctx, preset_name, driver=None, bot_response=None):
         try:
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
             ).to_dict("records")[0]
         except IndexError:
-            return f"I can't find a preset named {preset_name}."
+            return f"I can't find a preset named {preset_name}.", None, None
+
         wheels = []
         for tab in filters_df.keys():
             if isinstance(filters_df[tab], str) and tab != "Fullname":
@@ -160,7 +214,11 @@ class WheelCog(commands.Cog):
                     logging.error(
                         f"Error processing tab {tab}, filter string {filter_string}: {str(e)}"
                     )
-                    return f"The preset {preset_name} ran into an error: {str(e)}"
+                    return (
+                        f"The preset {preset_name} ran into an error: {str(e)}",
+                        None,
+                        None,
+                    )
 
                 wheel = WheelSpinner.WheelSpinner(opt_set)
                 wheels.append(wheel)
@@ -183,9 +241,8 @@ class WheelCog(commands.Cog):
             gifs.append(wheel.return_gif(driver))
             responses.append(wheel.response)
 
-        message = f'{self.get_message()} {" ".join(responses)}'
-        await self.process_reply(ctx, bot_response, message, gifs, "wheel.gif")
-        driver.quit()
+        message = "{} {}".format(self.get_message(), " ".join(responses))
+        return message, gifs, "wheel.gif"
 
     @commands.slash_command(name="spinfo")
     @discord.option(
@@ -202,21 +259,18 @@ class WheelCog(commands.Cog):
         description="The name of the tab to get info about (required if preset_name is provided)",
         autocomplete=discord.utils.basic_autocomplete(get_preset_tabs),
     )
-    async def spinfo(
-        self,
-        ctx,
-        preset_name,
-        tab_name,
-    ):
+    async def wrap_spinfo(self, ctx, preset_name, tab_name):
         """Get information about the weights for a particular tab (wheel) of a preset"""
-        await ctx.defer()
-        bot_response = await ctx.respond(ChatHandler.working_on_it())
+        await self.spinfo(ctx=ctx, preset_name=preset_name, tab_name=tab_name)
+
+    @wheel_command()
+    async def spinfo(self, ctx, preset_name, tab_name, driver=None, bot_response=None):
         try:
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
             ).to_dict("records")[0]
         except IndexError:
-            return f"I can't find a preset named {preset_name}."
+            return f"I can't find a preset named {preset_name}.", None, None
 
         for tab in filters_df.keys():
             if tab.lower() == tab_name.lower():
@@ -228,7 +282,7 @@ class WheelCog(commands.Cog):
             logging.error(
                 f"Error processing tab {tab_name}, filter string {filter_string}: {str(e)}"
             )
-            return f"The preset {preset_name} ran into an error: {str(e)}"
+            return f"The preset {preset_name} ran into an error: {str(e)}", None, None
         options_df = pd.DataFrame(
             [[option.option, option.weight, option.on_select] for option in opt_set],
             columns=["Option", "Weight", "OnSelect"],
@@ -269,9 +323,7 @@ class WheelCog(commands.Cog):
             fh.seek(0)
             os.remove(run_id)
             images.append(fh)
-        await self.process_reply(
-            ctx,
-            bot_response,
+        return (
             f"Here are the options for the preset {preset_name}, tab {tab_name}:",
             images,
             "options.png",
@@ -404,31 +456,35 @@ class WheelCog(commands.Cog):
         default=None,
         description="Comma-separated custom options",
     )
-    async def spintermix(self, ctx, custom_options: Optional[str] = None):
+    async def wrap_intermix(self, ctx, custom_options):
         """Returns a random ordering of the provided options."""
-        await ctx.defer()
-        driver = webdriver.Firefox(options=self.driver_options)
-        bot_response = await ctx.respond(ChatHandler.working_on_it())
-        opts_list = [opt.strip() for opt in custom_options.split(",")]
-        wheel = WheelSpinner.WheelSpinner.create_spindex(opts_list)
-        file = wheel.return_gif(driver)
-        await self.process_reply(
-            ctx,
-            bot_response,
-            self.get_message("spindex_messages.txt"),
-            file,
-            "wheel.gif",
-        )
-        driver.quit()
+        await self.spintermix(ctx=ctx, custom_options=custom_options)
+
+    @wheel_command()
+    async def spintermix(
+        self, ctx, custom_options: Optional[str] = None, driver=None, bot_response=None
+    ):
+        if custom_options:
+            opts_list = [opt.strip() for opt in custom_options.split(",")]
+            wheel = WheelSpinner.WheelSpinner.create_spindex(opts_list)
+            file = wheel.return_gif(driver)
+            return self.get_message("spindex_messages.txt"), file, "wheel.gif"
+        else:
+            return "Please provide comma-separated options to mix.", None, None
 
     @spin.command(name="auditor")
     @discord.default_permissions(administrator=True)
-    async def spin_auditor(self, ctx):
+    async def wrap_auditor(self, ctx):
         """Restart the session auditor to check for new or changed sessions and run validation."""
-        await ctx.defer()
+        await self.spin_auditor(ctx=ctx)
+
+    @wheel_command(needs_driver=False)
+    async def spin_auditor(self, ctx, bot_response=None):
         webhook_url = "http://192.168.1.125:9996/api/stacks/webhooks/b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
         req = requests.post(webhook_url)
-        logging.info(f"Request sent to webhook: {req}")
-        await ctx.respond(
-            "I've sent a request to restart the auditor. It should post shortly."
+        logging.info("Request sent to webhook: %s", req.status_code)
+        return (
+            "I've sent a request to restart the auditor. It should post shortly.",
+            None,
+            None,
         )

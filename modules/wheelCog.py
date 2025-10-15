@@ -704,6 +704,7 @@ class WheelCog(commands.Cog):
         return "Listed scheduled spins.", None, None
 
     @schedule.command(name="cancel")
+    @discord.default_permissions(administrator=True)
     @discord.option(
         "event_id",
         description="The ID of the scheduled spin to cancel",

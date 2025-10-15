@@ -229,3 +229,108 @@ def mark_event_completed(event_id: int) -> bool:
     except Exception as e:
         logger.error(f"Error marking event as completed: {str(e)}")
         return False
+
+
+def get_all_scheduled_events() -> List[ScheduledEvent]:
+    """
+    Get all scheduled events that haven't been completed yet.
+
+    Returns:
+        A list of ScheduledEvent objects
+    """
+    try:
+        # Ensure database exists before querying
+        if not os.path.exists(DB_PATH):
+            logger.warning(f"Database file does not exist: {DB_PATH}")
+            return []
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+        SELECT id, timestamp, function_name, message_id, channel_id, completed, data
+        FROM scheduled_events
+        WHERE completed = 0
+        ORDER BY timestamp ASC
+        """
+        )
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        events = [
+            ScheduledEvent(
+                id=row["id"],
+                timestamp=row["timestamp"],
+                function_name=row["function_name"],
+                message_id=row["message_id"],
+                channel_id=row["channel_id"],
+                completed=bool(row["completed"]),
+                data=row["data"],
+            )
+            for row in rows
+        ]
+
+        return events
+    except Exception as e:
+        logger.error(f"Error getting scheduled events: {str(e)}")
+        return []
+
+
+def cancel_event(event_id: int) -> bool:
+    """
+    Cancel a scheduled event by marking it as completed.
+
+    Args:
+        event_id: The ID of the event to cancel
+
+    Returns:
+        True if the event was canceled successfully, False otherwise
+    """
+    try:
+        # Ensure database exists before updating
+        if not os.path.exists(DB_PATH):
+            logger.warning(f"Database file does not exist: {DB_PATH}")
+            return False
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Check if the event exists and is not completed
+        cursor.execute(
+            """
+        SELECT id FROM scheduled_events
+        WHERE id = ? AND completed = 0
+        """,
+            (event_id,),
+        )
+
+        if not cursor.fetchone():
+            logger.warning(f"Event {event_id} not found or already completed")
+            conn.close()
+            return False
+
+        # Mark the event as completed (effectively canceling it)
+        cursor.execute(
+            """
+        UPDATE scheduled_events
+        SET completed = 1
+        WHERE id = ?
+        """,
+            (event_id,),
+        )
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Event {event_id} canceled successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Error canceling event: {str(e)}")
+        return False
+
+
+# Initialize the scheduler database
+init_db()

@@ -5,7 +5,7 @@ import logging
 import os
 from modules import ChatHandler
 from modules.incidentCog import IncidentCog  # noqa: F401
-from modules.wheelCog import WheelCog  # noqa: F401`
+from modules.wheelCog import WheelCog  # noqa: F401
 from modules.reactionsCog import ReactionsCog  # noqa: F401
 
 

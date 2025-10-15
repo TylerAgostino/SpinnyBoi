@@ -1,6 +1,6 @@
 # pyright: basic
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import os
 import logging
 from typing import Optional
@@ -16,7 +16,16 @@ import random
 import dataframe_image as dfi
 import uuid
 import requests
+import datetime
+import json
 from functools import wraps
+from modules.scheduler.scheduler import (
+    get_pending_events,
+    mark_event_completed,
+    schedule_event,
+    get_all_scheduled_events,
+    cancel_event,
+)
 
 
 async def get_presets(a):
@@ -56,7 +65,7 @@ class NoTabError(Exception):
     pass
 
 
-def wheel_command(needs_driver=True):
+def wheel_command(needs_driver=True, is_interaction=True):
     """
     Decorator for wheel commands that handles common operations:
     - Defer the response
@@ -74,8 +83,11 @@ def wheel_command(needs_driver=True):
         @wraps(func)
         async def wrapper(self, ctx, *args, **kwargs):
             # First defer the interaction
-            await ctx.defer()
-            bot_response = await ctx.respond(ChatHandler.working_on_it())
+            if is_interaction:
+                await ctx.defer()
+                bot_response = await ctx.respond(ChatHandler.working_on_it())
+            else:
+                bot_response = await ctx.send(ChatHandler.working_on_it())
 
             driver = None
             try:
@@ -116,8 +128,12 @@ def wheel_command(needs_driver=True):
                             response_attachment = [
                                 discord.File(fp=files, filename=filename)
                             ]
+                        try:
+                            content = f"{ctx.author.mention} {message}"
+                        except Exception:
+                            content = message
                         await bot_response.edit(
-                            content=f"{ctx.author.mention} {message}",
+                            content=content,
                             files=response_attachment,
                         )
             finally:
@@ -144,6 +160,17 @@ class WheelCog(commands.Cog):
 
         self.ghseet_url = lambda x: f"{base_url}/gviz/tq?tqx=out:csv&sheet={x}"
 
+        # Days of week for schedule command
+        self.days_of_week = {
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6,
+        }
+
         self.presets_df = pd.read_csv(self.ghseet_url("presets"))
         options = webdriver.FirefoxOptions()
         options.add_argument("--headless")
@@ -153,8 +180,48 @@ class WheelCog(commands.Cog):
         self.driver_options = options
 
         self.bot = bot
+        self.check_scheduled_events.start()
 
     spin = discord.SlashCommandGroup("spin", "Spin commands")
+    schedule = discord.SlashCommandGroup("schedule", "Schedule commands")
+
+    @tasks.loop(minutes=1)
+    async def check_scheduled_events(self):
+        """Check for pending scheduled events and execute them."""
+        pending_events = get_pending_events()
+        message, files, filename = "No matching command.", None, None
+        for event in pending_events:
+            try:
+                logging.info(
+                    f"Processing scheduled event {event.id}: {event.function_name}"
+                )
+
+                # Get the channel where this event should be executed
+                channel = await self.bot.fetch_channel(int(event.channel_id))
+                if not channel:
+                    logging.error(
+                        f"Channel {event.channel_id} not found for event {event.id}"
+                    )
+                    if event.id is not None:
+                        mark_event_completed(event.id)
+                    continue
+
+                # Parse the event data
+                data = json.loads(event.data) if event.data else {}
+
+                if event.function_name == "spin_preset":
+                    preset_name = data.get("preset_name")
+                    await self.spin_preset_new_message(
+                        ctx=channel, preset_name=preset_name
+                    )
+
+                    # Mark the event as completed
+                    if event.id is not None:
+                        mark_event_completed(event.id)
+            except Exception as e:
+                logging.error(f"Error executing scheduled event {event.id}: {str(e)}")
+
+            return message, files, filename
 
     @staticmethod
     def get_message(messages_file="messages.txt"):
@@ -196,7 +263,18 @@ class WheelCog(commands.Cog):
         await self.spin_preset(ctx=ctx, preset_name=preset_name)
 
     @wheel_command()
-    async def spin_preset(self, ctx, preset_name, driver=None, bot_response=None):
+    async def spin_preset(self, *args, **kwargs):
+        """Context based wrapper to call generic_spin_preset"""
+        return await self.generic_spin_preset(*args, **kwargs)
+
+    @wheel_command(is_interaction=False)
+    async def spin_preset_new_message(self, *args, **kwargs):
+        """Message based wrapper to call generic_spin_preset"""
+        return await self.generic_spin_preset(*args, **kwargs)
+
+    async def generic_spin_preset(
+        self, ctx, preset_name, driver=None, bot_response=None
+    ):
         try:
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
@@ -488,3 +566,181 @@ class WheelCog(commands.Cog):
             None,
             None,
         )
+
+    @schedule.command(name="spin")
+    @discord.option(
+        "day_of_week",
+        description="The day of the week to schedule the spin",
+        choices=[
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ],
+        required=True,
+    )
+    @discord.option(
+        "hour",
+        description="The hour to schedule the spin (0-23)",
+        min_value=0,
+        max_value=23,
+        required=True,
+    )
+    @discord.option(
+        "minute",
+        description="The minute to schedule the spin (0-59)",
+        min_value=0,
+        max_value=59,
+        required=True,
+    )
+    @discord.option(
+        "preset_name",
+        description="The preset to use for the spin",
+        autocomplete=get_presets,
+        required=True,
+    )
+    async def schedule_spin(
+        self, ctx, day_of_week: str, hour: int, minute: int, preset_name: str
+    ):
+        await ctx.defer()
+
+        # Get the current date
+        now = datetime.datetime.now()
+
+        # Calculate days until next occurrence of the specified day
+        current_weekday = now.weekday()
+        target_weekday = self.days_of_week[day_of_week.lower()]
+        days_until = (target_weekday - current_weekday) % 7
+
+        # If it's the same day and the time has already passed, schedule for next week
+        if days_until == 0 and (
+            now.hour > hour or (now.hour == hour and now.minute >= minute)
+        ):
+            days_until = 7
+
+        # Create the scheduled datetime
+        target_date = now + datetime.timedelta(days=days_until)
+        scheduled_time = datetime.datetime(
+            year=target_date.year,
+            month=target_date.month,
+            day=target_date.day,
+            hour=hour,
+            minute=minute,
+        )
+
+        # Convert to timestamp
+        timestamp = scheduled_time.timestamp()
+
+        # Store data needed for the spin
+        data = json.dumps(
+            {
+                "preset_name": preset_name,
+            }
+        )
+
+        try:
+            channel = await self.bot.fetch_channel(ctx.channel.id)
+        except Exception as e:
+            await ctx.respond("I don't have permission to post in this channel.")
+            return "I don't have permission to post in this channel.", None, None
+
+        # Schedule the event
+        schedule_event(
+            timestamp=timestamp,
+            function_name="spin_preset",
+            message_id=ctx.interaction.id,
+            channel_id=ctx.channel.id,
+            data=data,
+        )
+
+        # Format the response
+        formatted_time = scheduled_time.strftime("%A, %B %d at %I:%M %p")
+        # Use ctx.author.nick directly in the respond message below
+        try:
+            nick = ctx.author.nick if ctx.author.nick else ctx.author.name
+        except Exception:
+            nick = ctx.author.name
+
+        await ctx.respond(
+            f"{nick} scheduled spin of '{preset_name}' for <t:{int(timestamp)}:R>. I'll post the results here when it's time!"
+        )
+        return f"Scheduled spin of '{preset_name}' for {formatted_time}", None, None
+
+    @schedule.command(name="list")
+    async def list_scheduled_spins(self, ctx):
+        """List all scheduled spins that haven't been executed yet."""
+        await ctx.defer()
+
+        # Get all scheduled events
+        scheduled_events = get_all_scheduled_events()
+
+        # Filter for spin events
+        spin_events = [
+            event for event in scheduled_events if event.function_name == "spin_preset"
+        ]
+
+        if not spin_events:
+            await ctx.respond("There are no scheduled spins.")
+            return "No scheduled spins found.", None, None
+
+        # Build the response
+        response = "# Scheduled Spins\n\n"
+
+        for event in spin_events:
+            # Use the timestamp directly for Discord timestamp formatting
+            data = json.loads(event.data) if event.data else {}
+            preset_name = data.get("preset_name", "Unknown preset")
+
+            response += (
+                f"**ID:** {event.id}\n"
+                f"**Preset:** {preset_name}\n"
+                f"**Scheduled Time:** <t:{int(event.timestamp)}:F> (<t:{int(event.timestamp)}:R>)\n\n"
+            )
+
+        await ctx.respond(response)
+        return "Listed scheduled spins.", None, None
+
+    @schedule.command(name="cancel")
+    @discord.option(
+        "event_id",
+        description="The ID of the scheduled spin to cancel",
+        type=int,
+        required=True,
+    )
+    async def cancel_scheduled_spin(self, ctx, event_id: int):
+        """Cancel a scheduled spin."""
+        await ctx.defer()
+
+        # Get the specific event
+        all_events = get_all_scheduled_events()
+        event = next(
+            (
+                e
+                for e in all_events
+                if e.id == event_id and e.function_name == "spin_preset"
+            ),
+            None,
+        )
+
+        if not event:
+            await ctx.respond(f"No scheduled spin found with ID {event_id}.")
+            return f"No scheduled spin with ID {event_id}.", None, None
+
+        # Cancel the event
+        if cancel_event(event_id):
+            # Get the event details for the response
+            data = json.loads(event.data) if event.data else {}
+            preset_name = data.get("preset_name", "Unknown preset")
+
+            await ctx.respond(
+                f"Successfully canceled the scheduled spin of '{preset_name}' that was set for <t:{int(event.timestamp)}:F>."
+            )
+            return f"Canceled scheduled spin with ID {event_id}.", None, None
+        else:
+            await ctx.respond(
+                f"Failed to cancel the scheduled spin with ID {event_id}."
+            )
+            return f"Failed to cancel scheduled spin with ID {event_id}.", None, None

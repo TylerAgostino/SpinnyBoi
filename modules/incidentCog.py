@@ -87,7 +87,7 @@ class IncidentCog(commands.Cog):
             thread_id, message_id = next(iter(SUMMARY_EXAMPLES.values()))
 
             # Fetch the thread
-            thread = await self.fetch_channel(thread_id)
+            thread = await self.bot.fetch_channel(thread_id)
             if not isinstance(thread, discord.Thread):
                 logging.error(f"Channel {thread_id} is not a thread")
                 return None
@@ -163,17 +163,17 @@ class IncidentCog(commands.Cog):
                     await self.close_poll(
                         event.channel_id, event.message_id, event.data
                     )
-                # Add more function handlers here as needed
+                    # Add more function handlers here as needed
 
-                # Mark the event as completed
-                mark_event_completed(event.id)
+                    # Mark the event as completed
+                    mark_event_completed(event.id)
             except Exception as ex:
                 logging.error(f"Error processing event {event.id}: {str(ex)}")
 
     async def close_poll(self, channel_id, message_id, data=None):
         """Close a poll by counting reactions and posting results."""
         try:
-            channel = self.bot.get_channel(channel_id)
+            channel = await self.bot.fetch_channel(channel_id)
             if not channel:
                 logging.error(f"Channel {channel_id} not found")
                 return

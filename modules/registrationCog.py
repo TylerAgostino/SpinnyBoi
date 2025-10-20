@@ -99,6 +99,8 @@ class RegistrationCog(commands.Cog):
                     description=str(nat),
                     color=discord.Color.red(),
                 )
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
             except Exception as ex:
                 logging.error(f"Error during registration: {str(ex)}")
                 embed = discord.Embed(
@@ -106,7 +108,7 @@ class RegistrationCog(commands.Cog):
                     description="An error occurred during registration. Please try again later.",
                     color=discord.Color.red(),
                 )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed)
 
     @commands.slash_command(name="register")
     async def register(self, ctx: discord.ApplicationContext):

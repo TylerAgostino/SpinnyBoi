@@ -7,10 +7,12 @@ from modules import ChatHandler
 from modules.incidentCog import IncidentCog  # noqa: F401
 from modules.wheelCog import WheelCog  # noqa: F401
 from modules.reactionsCog import ReactionsCog  # noqa: F401
+from modules.registrationCog import RegistrationCog  # noqa: F401
 
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,4 +47,5 @@ async def on_message(message):
 bot.add_cog(IncidentCog(bot))
 bot.add_cog(WheelCog(bot))
 bot.add_cog(ReactionsCog(bot))
+bot.add_cog(RegistrationCog(bot, "SpinnyBoiRegistrations", 1421213036735365140))
 bot.run(os.getenv("BOT_TOKEN"))

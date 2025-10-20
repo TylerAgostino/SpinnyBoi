@@ -10,6 +10,10 @@ services:
             - LANGCHAIN_TRACING_V2=true
             - LANGCHAIN_PROJECT=spinnyboi
             - DATABASE_URL=sqlite:///data/spinny.db
+            - IRACING_EMAIL=${IRACING_EMAIL}
+            - IRACING_PASSWORD=${IRACING_PASSWORD}
+            - GOOGLE_CREDENTIALS_JSON=${GOOGLE_CREDENTIALS_JSON}
+            - REGISTRATION_SHEET_ID=${REGISTRATION_SHEET_ID}
         volumes:
             - spinny_db:/app/data
         dns:

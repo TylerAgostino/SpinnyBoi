@@ -81,7 +81,7 @@ class RegistrationCog(commands.Cog):
             try:
                 await self.cog.register_driver(
                     interaction.guild.id,
-                    interaction.user.id,
+                    self.discord_user_id,
                     iracing_id,
                     desired_league_name,
                     desired_league_numbers,
@@ -130,6 +130,36 @@ class RegistrationCog(commands.Cog):
                 cog=self,
                 title="Driver Registration",
                 discord_user_id=ctx.author.id,
+                placeholders=placeholders,
+            )
+            await ctx.send_modal(modal)
+        except Exception as ex:
+            logging.error(f"Error initiating registration: {str(ex)}")
+            await ctx.respond(
+                "An error occurred while trying to register. Please try again later.",
+                ephemeral=True,
+            )
+
+    @discord.default_permissions(administrator=True)
+    @commands.user_command(name="register")
+    async def register_user_command(
+        self, ctx: discord.ApplicationContext, user: discord.User
+    ):
+        try:
+            existing_user = await self.find_user(user.id)
+            placeholders = {}
+            if existing_user:
+                placeholders = {
+                    "iRacingID": existing_user.get("iRacingID", ""),
+                    "DesiredName": existing_user.get("DesiredName", ""),
+                    "CarNumber": existing_user.get("CarNumber", ""),
+                    "NumRaces": existing_user.get("NumRaces", ""),
+                }
+
+            modal = self.RegistrationModal(
+                cog=self,
+                title=f"Driver Registration for {user.name}",
+                discord_user_id=user.id,
                 placeholders=placeholders,
             )
             await ctx.send_modal(modal)

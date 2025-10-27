@@ -181,9 +181,19 @@ class WheelCog(commands.Cog):
 
         self.bot = bot
         self.check_scheduled_events.start()
+        self.refresh_presets.start()
 
     spin = discord.SlashCommandGroup("spin", "Spin commands")
     schedule = discord.SlashCommandGroup("schedule", "Schedule commands")
+
+    @tasks.loop(minutes=5)
+    async def refresh_presets(self):
+        """Refresh the presets dataframe every minute."""
+        try:
+            self.presets_df = pd.read_csv(self.ghseet_url("presets"))
+            logging.info("Presets dataframe refreshed successfully.")
+        except Exception as e:
+            logging.error(f"Error refreshing presets dataframe: {str(e)}")
 
     @tasks.loop(minutes=1)
     async def check_scheduled_events(self):
@@ -276,6 +286,7 @@ class WheelCog(commands.Cog):
         self, ctx, preset_name, driver=None, bot_response=None
     ):
         try:
+            self.presets_df = pd.read_csv(self.ghseet_url("presets"))
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
             ).to_dict("records")[0]
@@ -344,6 +355,7 @@ class WheelCog(commands.Cog):
     @wheel_command()
     async def spinfo(self, ctx, preset_name, tab_name, driver=None, bot_response=None):
         try:
+            self.presets_df = pd.read_csv(self.ghseet_url("presets"))
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
             ).to_dict("records")[0]
@@ -605,7 +617,9 @@ class WheelCog(commands.Cog):
     async def schedule_spin(
         self, ctx, day_of_week: str, hour: int, minute: int, preset_name: str
     ):
+        """Schedule a preset spin in the current channel for a specific day and time."""
         await ctx.defer()
+        self.presets_df = pd.read_csv(self.ghseet_url("presets"))
 
         # Get the current date
         now = datetime.datetime.now()

@@ -8,6 +8,7 @@ from modules.incidentCog import IncidentCog  # noqa: F401
 from modules.wheelCog import WheelCog  # noqa: F401
 from modules.reactionsCog import ReactionsCog  # noqa: F401
 from modules.registrationCog import RegistrationCog  # noqa: F401
+from modules.standingsCog import StandingsCog  # noqa: F401
 
 
 intents = discord.Intents.default()
@@ -48,4 +49,5 @@ bot.add_cog(IncidentCog(bot))
 bot.add_cog(WheelCog(bot))
 bot.add_cog(ReactionsCog(bot))
 bot.add_cog(RegistrationCog(bot, "SpinnyBoiRegistrations", 1421213036735365140))
+bot.add_cog(StandingsCog(bot))
 bot.run(os.getenv("BOT_TOKEN"))

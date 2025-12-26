@@ -155,7 +155,7 @@ class StandingsView(discord.ui.View):
                         "AM Standings",
                         "driver_table",
                         False,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=27592",
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=13428",
                     )
                 )
             elif table_value == "rbr_am_standings":
@@ -164,7 +164,7 @@ class StandingsView(discord.ui.View):
                         "Race-by-Race AM Standings",
                         "driver_grid",
                         False,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=27592&grid=y",
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=13428&grid=y",
                     )
                 )
 

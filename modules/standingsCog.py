@@ -78,7 +78,14 @@ class StandingsView(discord.ui.View):
 
     @discord.ui.select(
         select_type=discord.ComponentType.channel_select,
-        channel_types=[discord.ChannelType.text],
+        channel_types=[
+            discord.ChannelType.text,
+            discord.ChannelType.public_thread,
+            discord.ChannelType.forum,
+            discord.ChannelType.news_thread,
+            discord.ChannelType.news,
+            discord.ChannelType.private_thread,
+        ],
         placeholder="Select channel (leave blank for this channel)",
         min_values=0,
         max_values=1,

@@ -1,15 +1,16 @@
 # pyright: basic
+import io
+import logging
+import os
+
 import discord
 from discord.ext import commands
-import os
-import logging
-import io
+from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.firefox.options import Options
-from PIL import Image
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 
 class StandingsView(discord.ui.View):
@@ -30,34 +31,46 @@ class StandingsView(discord.ui.View):
                 label="Driver Standings",
                 value="driver_standings",
                 description="Individual driver championship standings",
-                default=True
+                default=True,
             ),
             discord.SelectOption(
                 label="Race-by-Race Driver Standings",
                 value="rbr_driver_standings",
                 description="Race-by-Race Driver Standings",
-                default=False
+                default=False,
             ),
             discord.SelectOption(
                 label="Team Standings",
                 value="team_standings",
                 description="Team championship standings",
-                default=True
+                default=True,
             ),
             discord.SelectOption(
                 label="Race-by-Race Team Standings",
                 value="rbr_team_standings",
                 description="Race-by-Race Team Standings",
-                default=False
+                default=False,
             ),
             discord.SelectOption(
                 label="League Stats",
                 value="league_stats",
                 description="League statistics and performance data",
-                default=False
-            )
+                default=False,
+            ),
+            discord.SelectOption(
+                label="AM Standings",
+                value="am_standings",
+                description="AM championship standings",
+                default=False,
+            ),
+            discord.SelectOption(
+                label="Race-by-Race AM Standings",
+                value="rbr_am_standings",
+                description="Race-by-Race AM Standings",
+                default=False,
+            ),
         ],
-        row=0
+        row=0,
     )
     async def table_select_callback(self, select, interaction: discord.Interaction):
         self.selected_tables = select.values
@@ -69,7 +82,7 @@ class StandingsView(discord.ui.View):
         placeholder="Select channel (leave blank for this channel)",
         min_values=0,
         max_values=1,
-        row=1
+        row=1,
     )
     async def channel_select_callback(self, select, interaction: discord.Interaction):
         if select.values:
@@ -79,12 +92,9 @@ class StandingsView(discord.ui.View):
         await interaction.response.defer()
 
     @discord.ui.button(
-        label="Fetch Standings",
-        style=discord.ButtonStyle.primary,
-        row=2
+        label="Fetch Standings", style=discord.ButtonStyle.primary, row=2
     )
     async def submit_callback(self, button, interaction: discord.Interaction):
-
         await interaction.response.defer(ephemeral=True)
 
         # Get selected tables
@@ -95,18 +105,73 @@ class StandingsView(discord.ui.View):
         selected_tables = []
         for table_value in self.selected_tables:
             if table_value == "driver_standings":
-                selected_tables.append(("Driver Standings", "driver_table", False, "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812"))
+                selected_tables.append(
+                    (
+                        "Driver Standings",
+                        "driver_table",
+                        False,
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812",
+                    )
+                )
             elif table_value == "team_standings":
-                selected_tables.append(("Team Standings", "team_table", False,  "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812"))
+                selected_tables.append(
+                    (
+                        "Team Standings",
+                        "team_table",
+                        False,
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812",
+                    )
+                )
             elif table_value == "league_stats":
-                selected_tables.append(("League Stats", "react-table", True, "https://www.simracerhub.com/scoring/league_stats.php?season_id=27512"))
+                selected_tables.append(
+                    (
+                        "League Stats",
+                        "react-table",
+                        True,
+                        "https://www.simracerhub.com/scoring/league_stats.php?season_id=27512",
+                    )
+                )
             elif table_value == "rbr_driver_standings":
-                selected_tables.append(("Race-by-Race Driver Standings", "driver_grid", False, "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812&grid=y"))
+                selected_tables.append(
+                    (
+                        "Race-by-Race Driver Standings",
+                        "driver_grid",
+                        False,
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812&grid=y",
+                    )
+                )
             elif table_value == "rbr_team_standings":
-                selected_tables.append(("Race-by-Race Team Standings", "team_grid", False, "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812&grid=y"))
+                selected_tables.append(
+                    (
+                        "Race-by-Race Team Standings",
+                        "team_grid",
+                        False,
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812&grid=y",
+                    )
+                )
+            elif table_value == "am_standings":
+                selected_tables.append(
+                    (
+                        "AM Standings",
+                        "driver_table",
+                        False,
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=27592",
+                    )
+                )
+            elif table_value == "rbr_am_standings":
+                selected_tables.append(
+                    (
+                        "Race-by-Race AM Standings",
+                        "driver_grid",
+                        False,
+                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=27592&grid=y",
+                    )
+                )
 
         if not selected_tables:
-            await interaction.followup.send("No tables selected. Please select at least one table.", ephemeral=True)
+            await interaction.followup.send(
+                "No tables selected. Please select at least one table.", ephemeral=True
+            )
             return
 
         # Determine which channel to use
@@ -117,7 +182,9 @@ class StandingsView(discord.ui.View):
             target_channel_id = self.ctx.channel.id
 
         # Send initial response
-        await interaction.followup.send("Fetching standings... This may take a moment.", ephemeral=True)
+        await interaction.followup.send(
+            "Fetching standings... This may take a moment.", ephemeral=True
+        )
 
         # Process each selected table
         results = []
@@ -128,21 +195,25 @@ class StandingsView(discord.ui.View):
                 channel_id=target_channel_id,
                 description=table_name,
                 additional_description=self.description,
-                use_class=use_class
+                use_class=use_class,
             )
             results.append((table_name, success))
 
         # Build embed response
         embed = discord.Embed(
             title="Standings Update Results",
-            color=discord.Color.green() if all(r[1] for r in results) else discord.Color.orange()
+            color=discord.Color.green()
+            if all(r[1] for r in results)
+            else discord.Color.orange(),
         )
 
         for name, success in results:
             status = "✅ Success" if success else "❌ Failed"
             embed.add_field(name=name, value=status, inline=False)
 
-        embed.add_field(name="Posted to Channel", value=f"<#{target_channel_id}>", inline=False)
+        embed.add_field(
+            name="Posted to Channel", value=f"<#{target_channel_id}>", inline=False
+        )
 
         if self.description:
             embed.add_field(name="Description", value=self.description, inline=False)
@@ -164,7 +235,15 @@ class StandingsCog(commands.Cog):
         driver = webdriver.Firefox(options=firefox_options)
         return driver
 
-    async def _capture_and_send_table(self, url: str, table_selector: str, channel_id: int, description: str, additional_description: str = "", use_class: bool = False):
+    async def _capture_and_send_table(
+        self,
+        url: str,
+        table_selector: str,
+        channel_id: int,
+        description: str,
+        additional_description: str = "",
+        use_class: bool = False,
+    ):
         """
         Navigate to a URL, capture a screenshot of a table element, and send it to a Discord channel.
 
@@ -202,6 +281,7 @@ class StandingsCog(commands.Cog):
 
             # Give it a moment to fully render
             import time
+
             time.sleep(2)
 
             # Scroll the element into view
@@ -216,7 +296,7 @@ class StandingsCog(commands.Cog):
 
             # Save to a BytesIO object
             img_byte_arr = io.BytesIO()
-            cropped_image.save(img_byte_arr, format='PNG')
+            cropped_image.save(img_byte_arr, format="PNG")
             img_byte_arr.seek(0)
 
             # Get the Discord channel
@@ -226,7 +306,9 @@ class StandingsCog(commands.Cog):
                 return False
 
             # Send the image to Discord
-            file = discord.File(img_byte_arr, filename=f"{description.replace(' ', '_')}.png")
+            file = discord.File(
+                img_byte_arr, filename=f"{description.replace(' ', '_')}.png"
+            )
             message_text = f"**{description}**"
             if additional_description:
                 message_text += f"\n{additional_description}"
@@ -249,13 +331,11 @@ class StandingsCog(commands.Cog):
         str,
         required=False,
         default="",
-        description="Optional description to append to each standings post"
+        description="Optional description to append to each standings post",
     )
     async def standings(self, ctx, description: str = ""):
         """Fetch and post standings tables to configured channels."""
         view = StandingsView(self, ctx, description)
         await ctx.respond(
-            "**Configure your standings fetch:**",
-            view=view,
-            ephemeral=True
+            "**Configure your standings fetch:**", view=view, ephemeral=True
         )

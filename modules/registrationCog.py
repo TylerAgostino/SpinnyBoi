@@ -1,12 +1,13 @@
 # pyright: basic
-import discord
-from discord.ext import commands
+import json
 import logging
 import os
-import json
-from typing import Dict, List, Optional, Any
-from .api import iRacingAPIHandler
+from typing import Any, Dict, List, Optional
 
+import discord
+from discord.ext import commands
+
+from .api import iRacingAPIHandler
 
 # Google API imports - install these with pip
 try:
@@ -491,7 +492,7 @@ class RegistrationCog(commands.Cog):
             if desired_league_number in [m.get("CarNumber", "") for m in other_members]:
                 if existing_user:
                     user_data["DesiredButTakenCarNums"] = (
-                        f'\'{desired_league_number}, {existing_user.get("DesiredButTakenCarNums", "")}'.strip(
+                        f"'{desired_league_number}, {existing_user.get('DesiredButTakenCarNums', '')}".strip(
                             ", "
                         )
                     )
@@ -569,7 +570,11 @@ class RegistrationCog(commands.Cog):
 
         registered_drivers = await self.read_users()
         handler = iRacingAPIHandler(
-            os.getenv("IRACING_EMAIL"), os.getenv("IRACING_PASSWORD")
+            os.getenv("IRACING_EMAIL"),
+            os.getenv("IRACING_PASSWORD"),
+            os.getenv("IRACING_CLIENT_ID"),
+            os.getenv("IRACING_CLIENT_SECRET"),
+            use_oauth=True,
         )
         league_members = handler.get_league_members(8579)
         pending_invites = handler.get_league_members(8579, pending=True)

@@ -74,6 +74,7 @@ class RegistrationCog(commands.Cog):
             )
 
         async def callback(self, interaction: discord.Interaction):
+            await interaction.response.defer()
             iracing_id = self.children[0].value
             desired_league_name = self.children[1].value
             desired_league_numbers = self.children[2].value
@@ -100,7 +101,7 @@ class RegistrationCog(commands.Cog):
                     description=str(nat),
                     color=discord.Color.red(),
                 )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                await interaction.followup.send(embed=embed)
                 return
             except Exception as ex:
                 logging.error(f"Error during registration: {str(ex)}")
@@ -109,7 +110,7 @@ class RegistrationCog(commands.Cog):
                     description="An error occurred during registration. Please try again later.",
                     color=discord.Color.red(),
                 )
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
 
     @commands.slash_command(name="register")
     async def register(self, ctx: discord.ApplicationContext):

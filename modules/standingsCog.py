@@ -25,7 +25,7 @@ class StandingsView(discord.ui.View):
     @discord.ui.select(
         placeholder="Select standings tables to fetch...",
         min_values=1,
-        max_values=5,
+        max_values=7,
         options=[
             discord.SelectOption(
                 label="Driver Standings",

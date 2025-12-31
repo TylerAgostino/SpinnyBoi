@@ -110,9 +110,17 @@ def wheel_command(needs_driver=True, is_interaction=True):
                         result = await func(
                             self, ctx=ctx, bot_response=bot_response, *args, **kwargs
                         )
-                except Exception as e:
-                    result = (f"An error occurred:\n```{str(e)}```", None, None)
-                    logging.error(f"Error in wheel command {func.__name__}: {str(e)}")
+                except Exception:
+                    import sys
+
+                    result = (
+                        f"An error occurred:\n```{str(sys.exc_info())}```",
+                        None,
+                        None,
+                    )
+                    logging.error(
+                        f"Error in wheel command {func.__name__}: {str(sys.exc_info())}"
+                    )
 
                 # Process the result if returned
                 if result:

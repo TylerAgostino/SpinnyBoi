@@ -135,7 +135,7 @@ class StandingsView(discord.ui.View):
                         "League Stats",
                         "react-table",
                         True,
-                        "https://www.simracerhub.com/scoring/league_stats.php?season_id=27512",
+                        "https://www.simracerhub.com/scoring/league_stats.php?season_id=28156",
                     )
                 )
             elif table_value == "rbr_driver_standings":

@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -21,10 +22,6 @@ except ImportError:
         "Google API libraries not installed. Registration features will be limited."
     )
     GOOGLE_APIS_AVAILABLE = False
-
-
-class NumberAlreadyTaken(Exception):
-    pass
 
 
 class RegistrationCog(commands.Cog):
@@ -94,7 +91,7 @@ class RegistrationCog(commands.Cog):
                     description="You have been successfully registered and assigned the driver role.",
                     color=discord.Color.green(),
                 )
-            except NumberAlreadyTaken as nat:
+            except ValueError as nat:
                 logging.warning(f"Registration failed: {str(nat)}")
                 embed = discord.Embed(
                     title="Registration Failed",
@@ -490,6 +487,12 @@ class RegistrationCog(commands.Cog):
                 "DesiredName": desired_league_name,
                 "NumRaces": num_races,
             }
+
+            if not re.fullmatch(r"\d{1,8}", str(iracing_id)):
+                raise ValueError("iRacing ID not valid.")
+            if not re.fullmatch(r"\d{1,3}", desired_league_number):
+                raise ValueError("Car Number not valid.")
+
             if desired_league_number in [m.get("CarNumber", "") for m in other_members]:
                 if existing_user:
                     user_data["DesiredButTakenCarNums"] = (
@@ -501,7 +504,7 @@ class RegistrationCog(commands.Cog):
                 else:
                     user_data["DesiredButTakenCarNums"] = f"'{desired_league_number}"
                     await self.add_user(user_data)
-                raise NumberAlreadyTaken(
+                raise ValueError(
                     f"Desired league number {desired_league_number} is already taken."
                 )
             user_data["CarNumber"] = f"'{desired_league_number}"
@@ -550,7 +553,7 @@ class RegistrationCog(commands.Cog):
                         f"Error updating nickname for user {discord_id}: {str(ex)}"
                     )
 
-        except NumberAlreadyTaken:
+        except ValueError:
             raise
 
         except Exception as ex:

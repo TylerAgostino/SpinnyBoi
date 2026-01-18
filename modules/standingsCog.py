@@ -209,9 +209,11 @@ class StandingsView(discord.ui.View):
         # Build embed response
         embed = discord.Embed(
             title="Standings Update Results",
-            color=discord.Color.green()
-            if all(r[1] for r in results)
-            else discord.Color.orange(),
+            color=(
+                discord.Color.green()
+                if all(r[1] for r in results)
+                else discord.Color.orange()
+            ),
         )
 
         for name, success in results:
@@ -225,7 +227,7 @@ class StandingsView(discord.ui.View):
         if self.description:
             embed.add_field(name="Description", value=self.description, inline=False)
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class StandingsCog(commands.Cog):
@@ -332,7 +334,10 @@ class StandingsCog(commands.Cog):
                 driver.quit()
 
     @commands.slash_command(name="standings")
-    @discord.default_permissions(administrator=True)
+    @commands.check_any(
+        commands.has_permissions(administrator=True),
+        commands.has_role(1146907150229192747),
+    )
     @discord.option(
         "description",
         str,
@@ -346,3 +351,10 @@ class StandingsCog(commands.Cog):
         await ctx.respond(
             "**Configure your standings fetch:**", view=view, ephemeral=True
         )
+
+    @standings.error
+    async def info_error(self, ctx, error):
+        if isinstance(error, commands.CheckFailure):
+            await ctx.respond(
+                "You do not have permission to use this command.", ephemeral=True
+            )

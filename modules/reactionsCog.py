@@ -42,3 +42,13 @@ class ReactionsCog(commands.Cog):
 
         if message.author.id == 292447304395522048 and random.randint(0, 100) < 20:
             await message.add_reaction("<a:wheel:1096138684786544883>")
+
+        if message.author.id == 267830473328295937 and random.randint(0, 100) < 10:
+            random_reaction = random.choice(list(self.reaction_dict.values()))
+            e_id = random.choice(random_reaction)
+            try:
+                await message.add_reaction(e_id)
+            except Exception as ex:
+                logging.error(
+                    f"Error adding reaction {e_id} to message {message.id}: {str(ex)}"
+                )

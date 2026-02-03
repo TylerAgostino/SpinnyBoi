@@ -1,30 +1,31 @@
 # pyright: basic
-import discord
-from discord.ext import commands, tasks
-import os
-import logging
-from typing import Optional
-from modules import ChatHandler
-from selenium import webdriver
-import io
-import pandas as pd
-from modules import WheelSpinner
-import typing  # For type hinting
-import functools
 import asyncio
-import random
-import dataframe_image as dfi
-import uuid
-import requests
 import datetime
+import functools
+import io
 import json
+import logging
+import os
+import random
+import typing  # For type hinting
+import uuid
 from functools import wraps
+from typing import Optional
+
+import dataframe_image as dfi
+import discord
+import pandas as pd
+import requests
+from discord.ext import commands, tasks
+from selenium import webdriver
+
+from modules import ChatHandler, WheelSpinner
 from modules.scheduler.scheduler import (
+    cancel_event,
+    get_all_scheduled_events,
     get_pending_events,
     mark_event_completed,
     schedule_event,
-    get_all_scheduled_events,
-    cancel_event,
 )
 
 
@@ -117,6 +118,7 @@ def wheel_command(needs_driver=True, is_interaction=True):
                         f"An error occurred:\n```{str(sys.exc_info())}```",
                         None,
                         None,
+                        None,
                     )
                     logging.error(
                         f"Error in wheel command {func.__name__}: {str(sys.exc_info())}"
@@ -124,7 +126,13 @@ def wheel_command(needs_driver=True, is_interaction=True):
 
                 # Process the result if returned
                 if result:
-                    message, files, filename = result
+                    # Support both 3-tuple (old format) and 4-tuple (new format with role)
+                    if len(result) == 4:
+                        message, files, filename, role = result
+                    else:
+                        message, files, filename = result
+                        role = None
+
                     if files is None:
                         await bot_response.edit(content=message)
                     else:
@@ -137,7 +145,11 @@ def wheel_command(needs_driver=True, is_interaction=True):
                                 discord.File(fp=files, filename=filename)
                             ]
                         try:
-                            content = f"{ctx.author.mention} {message}"
+                            # Build content with role mention if provided
+                            if role:
+                                content = f"{role.mention} {message}"
+                            else:
+                                content = f"{ctx.author.mention} {message}"
                         except Exception:
                             content = message
                         await bot_response.edit(
@@ -229,8 +241,17 @@ class WheelCog(commands.Cog):
 
                 if event.function_name == "spin_preset":
                     preset_name = data.get("preset_name")
+                    role_id = data.get("role_id")
+                    role = None
+                    if role_id:
+                        try:
+                            guild = channel.guild
+                            role = guild.get_role(role_id)
+                        except Exception as e:
+                            logging.error(f"Error fetching role {role_id}: {str(e)}")
+
                     await self.spin_preset_new_message(
-                        ctx=channel, preset_name=preset_name
+                        ctx=channel, preset_name=preset_name, role=role
                     )
 
                     # Mark the event as completed
@@ -256,18 +277,31 @@ class WheelCog(commands.Cog):
         required=True,
         description="Comma-separated custom options",
     )
-    async def wrap_custom(self, ctx, custom_options):
+    @discord.option(
+        "role",
+        discord.Role,
+        required=False,
+        description="Role to tag in the spin results",
+    )
+    async def wrap_custom(
+        self, ctx, custom_options, role: Optional[discord.Role] = None
+    ):
         """Spins a wheel with the provided custom options."""
-        await self.spin_custom(ctx=ctx, custom_options=custom_options)
+        await self.spin_custom(ctx=ctx, custom_options=custom_options, role=role)
 
     @wheel_command()
     async def spin_custom(
-        self, ctx, custom_options: str, driver=None, bot_response=None
+        self,
+        ctx,
+        custom_options: str,
+        role: Optional[discord.Role] = None,
+        driver=None,
+        bot_response=None,
     ):
         opts_list = [_WheelOption(opt.strip()) for opt in custom_options.split(",")]
         wheel = WheelSpinner.WheelSpinner(opts_list)
         file = wheel.return_gif(driver)
-        return self.get_message(), file, "wheel.gif"
+        return self.get_message(), file, "wheel.gif", role
 
     @spin.command(name="preset")
     @discord.option(
@@ -276,9 +310,15 @@ class WheelCog(commands.Cog):
         required=True,
         autocomplete=discord.utils.basic_autocomplete(get_presets),
     )
-    async def wrap_preset(self, ctx, preset_name):
+    @discord.option(
+        "role",
+        discord.Role,
+        required=False,
+        description="Role to tag in the spin results",
+    )
+    async def wrap_preset(self, ctx, preset_name, role: Optional[discord.Role] = None):
         """Spins a preset wheel or colleciton of wheels based on the provided preset name"""
-        await self.spin_preset(ctx=ctx, preset_name=preset_name)
+        await self.spin_preset(ctx=ctx, preset_name=preset_name, role=role)
 
     @wheel_command()
     async def spin_preset(self, *args, **kwargs):
@@ -291,7 +331,12 @@ class WheelCog(commands.Cog):
         return await self.generic_spin_preset(*args, **kwargs)
 
     async def generic_spin_preset(
-        self, ctx, preset_name, driver=None, bot_response=None
+        self,
+        ctx,
+        preset_name,
+        role: Optional[discord.Role] = None,
+        driver=None,
+        bot_response=None,
     ):
         try:
             self.presets_df = pd.read_csv(self.ghseet_url("presets"))
@@ -339,7 +384,7 @@ class WheelCog(commands.Cog):
             responses.append(wheel.response)
 
         message = "{} {}".format(self.get_message(), " ".join(responses))
-        return message, gifs, "wheel.gif"
+        return message, gifs, "wheel.gif", role
 
     @commands.slash_command(name="spinfo")
     @discord.option(
@@ -622,8 +667,20 @@ class WheelCog(commands.Cog):
         autocomplete=get_presets,
         required=True,
     )
+    @discord.option(
+        "role",
+        discord.Role,
+        required=False,
+        description="Role to tag when the spin is executed",
+    )
     async def schedule_spin(
-        self, ctx, day_of_week: str, hour: int, minute: int, preset_name: str
+        self,
+        ctx,
+        day_of_week: str,
+        hour: int,
+        minute: int,
+        preset_name: str,
+        role: Optional[discord.Role] = None,
     ):
         """Schedule a preset spin in the current channel for a specific day and time."""
         await ctx.defer()
@@ -660,6 +717,7 @@ class WheelCog(commands.Cog):
         data = json.dumps(
             {
                 "preset_name": preset_name,
+                "role_id": role.id if role else None,
             }
         )
 
@@ -715,11 +773,22 @@ class WheelCog(commands.Cog):
             # Use the timestamp directly for Discord timestamp formatting
             data = json.loads(event.data) if event.data else {}
             preset_name = data.get("preset_name", "Unknown preset")
+            role_id = data.get("role_id")
+
+            role_text = ""
+            if role_id:
+                try:
+                    guild = ctx.guild
+                    role = guild.get_role(role_id)
+                    if role:
+                        role_text = f"\n**Tag Role:** {role.name}"
+                except Exception:
+                    pass
 
             response += (
                 f"**ID:** {event.id}\n"
                 f"**Preset:** {preset_name}\n"
-                f"**Scheduled Time:** <t:{int(event.timestamp)}:F> (<t:{int(event.timestamp)}:R>)\n\n"
+                f"**Scheduled Time:** <t:{int(event.timestamp)}:F> (<t:{int(event.timestamp)}:R>){role_text}\n\n"
             )
 
         await ctx.respond(response)

@@ -571,6 +571,7 @@ class RegistrationCog(commands.Cog):
         required_number_changes = []
         required_invites = []
         required_accept_invites = []
+        penalized_drivers = []
 
         registered_drivers = await self.read_users()
         handler = iRacingAPIHandler(
@@ -606,6 +607,11 @@ class RegistrationCog(commands.Cog):
                     current_name = member.get("nick_name") or member.get(
                         "display_name", ""
                     )
+                    # find drivers whose names begin with (X), (XX), or (XXX) and add to penalized drivers
+                    if re.match(r"^\([xX]{1,3}\)", current_name):
+                        penalized_drivers.append(current_name)
+                        current_name = re.sub(r"^\([xX]{1,3}\)\s*", "", current_name)
+
                     current_number = member.get("car_number", "")
 
                     if current_name != desired_name:
@@ -662,6 +668,13 @@ class RegistrationCog(commands.Cog):
                         for iracing_id in required_accept_invites
                     ]
                 ),
+                inline=False,
+            )
+
+        if penalized_drivers:
+            embed.add_field(
+                name="Penalized Drivers",
+                value="\n".join([f"{driver}" for driver in penalized_drivers]),
                 inline=False,
             )
         if not embed.fields:

@@ -4,3 +4,4 @@ recording.gif
 **/__pycache__/
 .zed
 .venv
+creds.json

@@ -92,9 +92,12 @@ def wheel_command(needs_driver=True, is_interaction=True):
 
             driver = None
             try:
-                # Create a driver if needed
+                # Create the driver off the event loop — Firefox startup is blocking
+                # and would freeze the bot from responding to other requests otherwise
                 if needs_driver:
-                    driver = webdriver.Firefox(options=self.driver_options)
+                    driver = await asyncio.to_thread(
+                        webdriver.Firefox, options=self.driver_options
+                    )
 
                 try:
                     # Call the original function with or without driver
@@ -157,9 +160,9 @@ def wheel_command(needs_driver=True, is_interaction=True):
                             files=response_attachment,
                         )
             finally:
-                # Clean up the driver if created
+                # Clean up the driver off the event loop as well
                 if driver:
-                    driver.quit()
+                    await asyncio.to_thread(driver.quit)
 
         return wrapper
 
@@ -300,7 +303,8 @@ class WheelCog(commands.Cog):
     ):
         opts_list = [_WheelOption(opt.strip()) for opt in custom_options.split(",")]
         wheel = WheelSpinner.WheelSpinner(opts_list)
-        file = wheel.return_gif(driver)
+        # return_gif does 90 blocking Selenium screenshots — run it off the event loop
+        file = await asyncio.to_thread(wheel.return_gif, driver)
         return self.get_message(), file, "wheel.gif", role
 
     @spin.command(name="preset")
@@ -339,7 +343,9 @@ class WheelCog(commands.Cog):
         bot_response=None,
     ):
         try:
-            self.presets_df = pd.read_csv(self.ghseet_url("presets"))
+            self.presets_df = await asyncio.to_thread(
+                pd.read_csv, self.ghseet_url("presets")
+            )
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
             ).to_dict("records")[0]
@@ -351,7 +357,7 @@ class WheelCog(commands.Cog):
             if isinstance(filters_df[tab], str) and tab != "Fullname":
                 filter_string = str(filters_df[tab]).lower()
                 try:
-                    opt_set = self.generate_option_set(tab, filter_string)
+                    opt_set = await self.generate_option_set(tab, filter_string)
                 except Exception as e:
                     logging.error(
                         f"Error processing tab {tab}, filter string {filter_string}: {str(e)}"
@@ -368,7 +374,7 @@ class WheelCog(commands.Cog):
                 next_spin = wheel.next_spin
                 while next_spin is not None and depth < 10:
                     next_tab, next_filter_string = next_spin
-                    next_opt_set = self.generate_option_set(
+                    next_opt_set = await self.generate_option_set(
                         next_tab, next_filter_string
                     )
                     next_wheel = WheelSpinner.WheelSpinner(next_opt_set)
@@ -380,7 +386,8 @@ class WheelCog(commands.Cog):
         gifs = []
         responses = []
         for wheel in wheels:
-            gifs.append(wheel.return_gif(driver))
+            # return_gif does 90 blocking Selenium screenshots — run it off the event loop
+            gifs.append(await asyncio.to_thread(wheel.return_gif, driver))
             responses.append(wheel.response)
 
         message = "{} {}".format(self.get_message(), " ".join(responses))
@@ -408,7 +415,9 @@ class WheelCog(commands.Cog):
     @wheel_command()
     async def spinfo(self, ctx, preset_name, tab_name, driver=None, bot_response=None):
         try:
-            self.presets_df = pd.read_csv(self.ghseet_url("presets"))
+            self.presets_df = await asyncio.to_thread(
+                pd.read_csv, self.ghseet_url("presets")
+            )
             filters_df = self.presets_df.query(
                 f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
             ).to_dict("records")[0]
@@ -420,7 +429,7 @@ class WheelCog(commands.Cog):
                 tab_name = tab
         filter_string = str(filters_df[tab_name]).lower()
         try:
-            opt_set = self.generate_option_set(tab_name, filter_string)
+            opt_set = await self.generate_option_set(tab_name, filter_string)
         except Exception as e:
             logging.error(
                 f"Error processing tab {tab_name}, filter string {filter_string}: {str(e)}"
@@ -453,7 +462,8 @@ class WheelCog(commands.Cog):
         rows = len(outputdf)
         images = []
         for i in range(0, rows, 30):
-            dfi.export(
+            await asyncio.to_thread(
+                dfi.export,
                 outputdf[i : i + 30],
                 run_id,
                 max_rows=-1,
@@ -472,9 +482,9 @@ class WheelCog(commands.Cog):
             "options.png",
         )
 
-    def generate_option_set(self, tab, filter_string=""):
+    async def generate_option_set(self, tab, filter_string=""):
         try:
-            df = pd.read_csv(self.ghseet_url(tab))
+            df = await asyncio.to_thread(pd.read_csv, self.ghseet_url(tab))
             if list(df.columns.values) == ["FALSE"]:
                 raise NoTabError(f"Tab {tab} not found")
             pass
@@ -610,7 +620,7 @@ class WheelCog(commands.Cog):
         if custom_options:
             opts_list = [opt.strip() for opt in custom_options.split(",")]
             wheel = WheelSpinner.WheelSpinner.create_spindex(opts_list)
-            file = wheel.return_gif(driver)
+            file = await asyncio.to_thread(wheel.return_gif, driver)
             return self.get_message("spindex_messages.txt"), file, "wheel.gif"
         else:
             return "Please provide comma-separated options to mix.", None, None

@@ -22,8 +22,9 @@ class WheelSpinner:
             for i in range(option.weight):
                 self.repeated_options.append(option)
         if not self.repeated_options:
+            failed_options = [o.option for o in options]
             logging.error(
-                "All options have zero weight for wheel with options: " + str(options)
+                f"All options have zero weight for wheel with options: {failed_options}"
             )
             raise ValueError("All options have zero weight")
         self.shuffle()

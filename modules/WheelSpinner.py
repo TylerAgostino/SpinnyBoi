@@ -1,13 +1,14 @@
 # pyright: basic
 import io
-import os
-import uuid
-import drawsvg as draw
-import random
-import math
-from PIL import Image
-import shutil
 import logging
+import math
+import os
+import random
+import shutil
+import uuid
+
+import drawsvg as draw
+from PIL import Image
 
 
 class WheelSpinner:
@@ -20,6 +21,11 @@ class WheelSpinner:
         for option in options:
             for i in range(option.weight):
                 self.repeated_options.append(option)
+        if not self.repeated_options:
+            logging.error(
+                "All options have zero weight for wheel with options: " + str(options)
+            )
+            raise ValueError("All options have zero weight")
         self.shuffle()
         next_spin = (
             self.repeated_options[0].on_select

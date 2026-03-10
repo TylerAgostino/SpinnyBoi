@@ -13,7 +13,7 @@ from PIL import Image
 
 class WheelSpinner:
     def __init__(self, options):
-        self.colors = ["#F7B71D", "#263F1A", "#F3E59E", "#AFA939"]
+        self.colors = ["#011C39", "#C44E4F", "#143C5D", "#FFBB55"]
         self.colors_set = random.randint(0, len(self.colors) - 1)
 
         self.weighted_options = options
@@ -128,6 +128,8 @@ class WheelSpinner:
             font_family=font,
         )
 
+        d.append(draw.Rectangle(-150, -150, 300, 300, fill="#E7D5C5"))
+
         wheel = self.get_wheel()
         start_pos = random.randint(360, 400)
         end_pos = (
@@ -167,6 +169,17 @@ class WheelSpinner:
             )
         )
         d.append(wheel)
+
+        # add the beer league logo in the center
+        logo = draw.Image(
+            x=-30,
+            y=-30,
+            width=60,
+            height=60,
+            path=f"{os.getcwd()}/BLlogo.png",
+            embed=True,
+        )
+        d.append(logo)
 
         d.append(self.get_winner_box())
         # Draw arrow to highlight selection

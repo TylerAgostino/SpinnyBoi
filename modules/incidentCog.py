@@ -339,13 +339,16 @@ class IncidentCog(commands.Cog):
             logging.error(f"Error closing poll: {str(ex)}")
 
     @commands.slash_command(name="spincident")
-    @discord.default_permissions(administrator=True)
     @discord.option(
         "subject",
         str,
         required=False,
         default=None,
         description="Subject of the incident poll",
+    )
+    @commands.check_any(
+        commands.has_permissions(administrator=True),
+        commands.has_role(1146907150229192747),
     )
     async def spincident(self, ctx, subject: str = ""):
         """Create an incident poll that closes next Sunday at 9 PM ET."""

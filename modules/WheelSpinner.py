@@ -112,7 +112,7 @@ class WheelSpinner:
         if random.randint(0, 30) == 0:
             font = "Comic Sans MS"
         else:
-            font = "Shantell Sans"
+            font = "Avenir Next"
         d = draw.Drawing(
             200,
             200,
@@ -216,17 +216,83 @@ class WheelSpinner:
         return wheel
 
     @staticmethod
+    def _best_font_size(option, radial_length, arc_height):
+        """Try both single-line and multi-line layouts and return (best_font_size, display_text).
+
+        The text is oriented so that:
+          - its *width*  runs along the radial direction  -> constrained by radial_length
+          - its *height* runs along the arc direction     -> constrained by arc_height
+
+        Character geometry constants (approximate for the font):
+          char_aspect  : rendered width of one character = char_aspect * font_size
+          line_gap     : rendered height of one line     = line_gap    * font_size
+        """
+        char_aspect = 0.55  # avg char width as a fraction of font size
+        line_gap = 1.15  # line height as a fraction of font size (tight leading)
+
+        words = option.split()
+
+        def size_for_layout(lines):
+            """Return the largest font size where every line fits within the box."""
+            longest = max(len(l) for l in lines) if lines else 1
+            num_lines = len(lines)
+            # width constraint:  longest_chars * char_aspect * fs <= radial_length
+            fs_w = radial_length / max(longest * char_aspect, 1e-9)
+            # height constraint: num_lines * line_gap * fs <= arc_height
+            fs_h = arc_height / max(num_lines * line_gap, 1e-9)
+            return min(fs_w, fs_h)
+
+        best_size = 0.0
+        best_text = option
+
+        # --- Try every possible line-break count (1 line up to len(words) lines) ---
+        for num_lines in range(1, len(words) + 1):
+            # Greedily pack words into `num_lines` lines (minimise the longest line).
+            # We use a simple left-to-right greedy split: distribute words as evenly as
+            # possible by character count.
+            lines = []
+            current = ""
+            words_per_line = math.ceil(len(words) / num_lines)
+            for i, word in enumerate(words):
+                current = (current + " " + word).strip() if current else word
+                if (i + 1) % words_per_line == 0:
+                    lines.append(current)
+                    current = ""
+            if current:
+                lines.append(current)
+
+            fs = size_for_layout(lines)
+            if fs > best_size:
+                best_size = fs
+                best_text = "\n".join(lines)
+
+        # Clamp to a readable minimum and a sane maximum
+        best_size = max(2.0, min(best_size, 20.0))
+        return best_size, best_text
+
+    @staticmethod
     def get_slice(start_degree, end_degree, option, color=None):
         if color is None:
             color = f"hsl({random.randint(0, 360)}, {random.randint(30, 100)}%, {random.randint(30, 100)}%)"
 
-        font_size = (150) / len(option)
         slice_angle = end_degree - start_degree
-        max_height = 2 * 30 * (1 - math.cos(math.radians(slice_angle / 2)))
 
-        limitation = min(max_height * 10, font_size)
+        # The logo is 60x60 centred at the origin, so it covers radii 0-30.
+        # Start text at x=32 to clear the logo with a small gap.
+        # The wheel radius is 85, so the usable radial span is 85 - 32 = 53 units.
+        text_start = 32.0
+        radial_length = 85.0 - text_start  # 53 units
 
-        font_size = limitation
+        # The arc height (text height direction) is the chord at the mid-radius of the
+        # text zone (midpoint between text_start and wheel edge), with a small margin so
+        # text doesn't crowd the slice edges.
+        r_mid = (text_start + 85.0) / 2.0  # ~58.5
+        arc_height = 2.0 * r_mid * math.sin(math.radians(slice_angle / 2)) * 0.82
+
+        font_size, display_text = WheelSpinner._best_font_size(
+            option, radial_length, arc_height
+        )
+
         slice = draw.Group(fill=option)
         p = draw.Path(fill=color, stroke="white", stroke_width=0)
         p.arc(0, 0, 85, -1 * start_degree, -1 * end_degree, cw=False)
@@ -235,9 +301,9 @@ class WheelSpinner:
         slice.append(p)
         slice.append(
             draw.Text(
-                option,
+                display_text,
                 font_size,
-                20,
+                text_start,
                 0,
                 transform=f"rotate({(-1*(end_degree-start_degree)/2)-start_degree})",
                 text_anchor="start",
@@ -388,7 +454,7 @@ class WheelSpinner:
         if random.randint(0, 30) == 0:
             font = "Comic Sans MS"
         else:
-            font = "Shantell Sans"
+            font = "Avenir Next"
 
         # Randomize the order of items for the animation
         random.shuffle(self.weighted_options)

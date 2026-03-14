@@ -18,6 +18,7 @@ services:
       - REGISTRATION_SHEET_ID=${REGISTRATION_SHEET_ID}
     volumes:
       - spinny_db:/app/data
+      - /mnt/user/apollo-share/Fonts:/usr/share/fonts/
     dns:
       - 1.1.1.1
   ollama:

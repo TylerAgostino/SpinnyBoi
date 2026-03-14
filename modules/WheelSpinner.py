@@ -67,7 +67,7 @@ class WheelSpinner:
                 logging.info("No browser provided, starting a new one")
                 options = webdriver.FirefoxOptions()
                 options.add_argument("--headless")
-                options.add_argument("--height=1100")
+                options.add_argument("--height=1080")
                 options.add_argument("--width=1000")
                 driver = webdriver.Firefox(options=options)
 
@@ -76,6 +76,9 @@ class WheelSpinner:
 
             logging.info("Loading html")
             driver.get(f"file://{run_id}/wheel.html")
+            driver.execute_script(
+                "document.body.style.margin='0'; document.body.style.padding='0'; document.body.style.overflow='hidden';"
+            )
 
             logging.info("Taking screenshots")
             frames = []

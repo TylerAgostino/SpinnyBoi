@@ -182,6 +182,21 @@ class WheelSpinner:
             path=f"{os.getcwd()}/BLlogo.png",
             embed=True,
         )
+        # randomly spin the logo in the opposite direction
+        if font == "Comic Sans MS":
+            logo.append_anim(
+                draw.AnimateTransform(
+                    "rotate",
+                    1,
+                    repeat_count="1",
+                    fill="freeze",
+                    calc_mode="linear",
+                    from_or_values=";".join(
+                        [str((-1 * x) + end_pos) for x in positions]
+                    ),
+                    key_times=";".join([str(x) for x in key_times]),
+                )
+            )
         d.append(logo)
 
         d.append(self.get_winner_box())
@@ -355,7 +370,7 @@ class WheelSpinner:
                 fill="white",
                 stroke="black",
                 stroke_width=1,
-                opacity=0.8,
+                opacity=0.9,
             )
         )
 
@@ -364,7 +379,13 @@ class WheelSpinner:
         font_size = get_font_size(text, max_length, 100, 40)
         box.append(
             draw.Text(
-                text, font_size, 0, 0, text_anchor="middle", center=True, fill="black"
+                text,
+                font_size,
+                0,
+                0,
+                text_anchor="middle",
+                center=True,
+                stroke="black",
             )
         )
         box.append(

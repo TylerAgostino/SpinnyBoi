@@ -7,11 +7,11 @@ from modules.wheelCog import _WheelOption
 class TestWheelSpinner(unittest.TestCase):
     def setUp(self):
         options_list = [
-            "penis",
-            "penis",
-            "penis",
-            "penis",
-            "penis",
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
         ]
         options = [_WheelOption(option, 1) for option in options_list]
         self.wheel = WheelSpinner.WheelSpinner(options)

@@ -607,8 +607,8 @@ class RegistrationCog(commands.Cog):
                     current_name = member.get("nick_name") or member.get(
                         "display_name", ""
                     )
-                    # find drivers whose names begin with (X), (XX), or (XXX) and add to penalized drivers
-                    if re.match(r"^\([xX]{1,3}\)", current_name):
+                    # find drivers whose names begin with (X), (XX), (XXX), or (XXXX) and add to penalized drivers
+                    if re.match(r"^\([xX]{1,4}\)", current_name):
                         penalized_drivers.append(current_name)
                         current_name = re.sub(r"^\([xX]{1,3}\)\s*", "", current_name)
 

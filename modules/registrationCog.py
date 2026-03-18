@@ -456,6 +456,33 @@ class RegistrationCog(commands.Cog):
             logging.error(f"Error updating user in spreadsheet: {str(ex)}")
             return False
 
+    @staticmethod
+    def _get_penalty_prefix(points) -> str:
+        """
+        Return the correct (X) prefix string based on penalty points.
+
+        <3  : no prefix
+        3-4 : (X)
+        5-7 : (XX)
+        8-9 : (XXX)
+        >9  : (XXXX)
+        """
+        try:
+            pts = int(points)
+        except (ValueError, TypeError):
+            return ""
+
+        if pts < 3:
+            return ""
+        elif pts <= 4:
+            return "(X)"
+        elif pts <= 7:
+            return "(XX)"
+        elif pts <= 9:
+            return "(XXX)"
+        else:
+            return "(XXXX)"
+
     async def register_driver(
         self,
         guild_id: int,
@@ -571,7 +598,7 @@ class RegistrationCog(commands.Cog):
         required_number_changes = []
         required_invites = []
         required_accept_invites = []
-        penalized_drivers = []
+        penalty_prefix_changes = []
 
         registered_drivers = await self.read_users()
         handler = iRacingAPIHandler(
@@ -590,6 +617,12 @@ class RegistrationCog(commands.Cog):
             iracing_id = driver.get("iRacingID", "").lstrip("'")
             desired_name = driver.get("DesiredName", "")
             desired_number = driver.get("CarNumber", "")
+            penalty_points = driver.get("PenaltyPoints", "")
+            penalty_prefix = self._get_penalty_prefix(penalty_points)
+            expected_name = (
+                f"{penalty_prefix} {desired_name}" if penalty_prefix else desired_name
+            )
+
             member = next(
                 (m for m in league_members if str(m.get("cust_id")) == iracing_id), None
             )
@@ -607,19 +640,28 @@ class RegistrationCog(commands.Cog):
                     current_name = member.get("nick_name") or member.get(
                         "display_name", ""
                     )
-                    # find drivers whose names begin with (X), (XX), (XXX), or (XXXX) and add to penalized drivers
-                    if re.match(r"^\([xX]{1,4}\)", current_name):
-                        penalized_drivers.append(current_name)
-                        current_name = re.sub(r"^\([xX]{1,3}\)\s*", "", current_name)
+                    # Strip any existing (X) prefix to get the bare current name
+                    current_name_stripped = re.sub(
+                        r"^\([xX]{1,4}\)\s*", "", current_name
+                    )
 
                     current_number = member.get("car_number", "")
 
-                    if current_name != desired_name:
-                        required_name_changes.append((current_name, desired_name))
+                    # Check whether the bare name is correct first
+                    if current_name_stripped != desired_name:
+                        # The base name itself is wrong — real name change needed
+                        required_name_changes.append(
+                            (current_name_stripped, desired_name)
+                        )
+                    elif current_name != expected_name:
+                        # Base name is fine but the penalty prefix is wrong
+                        penalty_prefix_changes.append(
+                            (desired_name, current_name, expected_name)
+                        )
 
                     if current_number != desired_number:
                         required_number_changes.append(
-                            (current_name, desired_number, current_number)
+                            (current_name_stripped, desired_number, current_number)
                         )
 
         embed = discord.Embed(
@@ -671,10 +713,21 @@ class RegistrationCog(commands.Cog):
                 inline=False,
             )
 
-        if penalized_drivers:
+        if penalty_prefix_changes:
             embed.add_field(
-                name="Penalized Drivers",
-                value="\n".join([f"{driver}" for driver in penalized_drivers]),
+                name="Penalty Prefix Updates Required",
+                value="\n".join(
+                    [
+                        f"'{name}': rename '{current}' => '{expected}' in iRacing"
+                        for name, current, expected in penalty_prefix_changes
+                    ]
+                ),
+                inline=False,
+            )
+        else:
+            embed.add_field(
+                name="Penalty Prefixes",
+                value="✅ All penalty prefixes are correct.",
                 inline=False,
             )
         if not embed.fields:

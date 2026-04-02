@@ -109,6 +109,7 @@ vegas,<:ThonkVegasRoval:1211873177035346020>
 zandvoort,<:Thonkvoort:1212152574568955964>
 north wilkesboro,<:ThonkWilkesboro:1211879975549018152>
 magny cours,<:ThonkyCours:1211080019447648276>
+magny-cours,<:ThonkyCours:1211080019447648276>
 monza,<:Thonkza:1174466646765748264>,<:ThonkzaCombined:1212174023388307456>,<:ThonkzaCombinedx2:1212174059660648528>
 suzuka,<:Thonkzuka:1211082294627143740>
 vir,<:VIThonk:1184974027723391076>

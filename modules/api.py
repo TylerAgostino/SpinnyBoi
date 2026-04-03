@@ -279,7 +279,9 @@ class iRacingAPIHandler(requests.Session):
 
         return super().request(method, url, *args, **kwargs)
 
-    def _get_paged_data(self, url: str) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
+    def _get_paged_data(
+        self, url: str
+    ) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
         """
         Get paginated data from the API.
 
@@ -309,6 +311,23 @@ class iRacingAPIHandler(requests.Session):
         else:
             response.raise_for_status()
             return {}
+
+    def get_driver_name(self, cust_id: int) -> Optional[str]:
+        """
+        Get the display name of a driver by their iRacing customer ID.
+
+        Args:
+            cust_id: The iRacing customer ID
+
+        Returns:
+            The driver's display name, or None if not found
+        """
+        url = f"https://members-ng.iracing.com/data/member/get?cust_ids={cust_id}"
+        data = self._get_paged_data(url)
+        members = data.get("members", [])
+        if members:
+            return members[0].get("display_name")
+        return None
 
     def get_league_members(self, league_id: int, pending=False) -> list[dict[str, Any]]:
         """

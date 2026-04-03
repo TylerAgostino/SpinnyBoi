@@ -1,4 +1,5 @@
 # pyright: basic
+import asyncio
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ class RegistrationCog(commands.Cog):
         self.spreadsheet_id = os.getenv("REGISTRATION_SHEET_ID")
         self.users_sheet_name = sheet_name
         self.driver_role_id = role_id
+        self._iracing_api: Optional[iRacingAPIHandler] = None
         # Init Google Sheets API
         self._init_google_sheets()
 
@@ -483,6 +485,61 @@ class RegistrationCog(commands.Cog):
         else:
             return "(XXXX)"
 
+    def _get_iracing_api(self) -> Optional[iRacingAPIHandler]:
+        """
+        Lazily initialize and return the iRacing API handler.
+
+        Returns:
+            An authenticated iRacingAPIHandler, or None if credentials are missing/invalid.
+        """
+        if self._iracing_api is None:
+            email = os.getenv("IRACING_EMAIL")
+            password = os.getenv("IRACING_PASSWORD")
+            client_id = os.getenv("IRACING_CLIENT_ID")
+            client_secret = os.getenv("IRACING_CLIENT_SECRET")
+            if email and password and client_id and client_secret:
+                try:
+                    self._iracing_api = iRacingAPIHandler(
+                        email=email,
+                        password=password,
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        use_oauth=True,
+                    )
+                    logging.info("iRacing API handler initialized successfully")
+                except Exception as ex:
+                    logging.error(f"Failed to initialize iRacing API handler: {ex}")
+            else:
+                logging.warning(
+                    "iRacing API credentials not fully configured. "
+                    "Set IRACING_EMAIL, IRACING_PASSWORD, IRACING_CLIENT_ID, and IRACING_CLIENT_SECRET."
+                )
+        return self._iracing_api
+
+    async def _get_iracing_name(self, cust_id: int) -> Optional[str]:
+        """
+        Look up a driver's display name in iRacing by their customer ID.
+
+        Runs the synchronous API call in a thread executor to avoid blocking the event loop.
+
+        Args:
+            cust_id: The iRacing customer ID
+
+        Returns:
+            The driver's display name, or None if not found or on error.
+        """
+        api = self._get_iracing_api()
+        if api is None:
+            logging.warning("iRacing API unavailable; skipping driver name lookup.")
+            return None
+        try:
+            loop = asyncio.get_event_loop()
+            name = await loop.run_in_executor(None, api.get_driver_name, cust_id)
+            return name
+        except Exception as ex:
+            logging.error(f"Error looking up iRacing name for cust_id {cust_id}: {ex}")
+            return None
+
     async def register_driver(
         self,
         guild_id: int,
@@ -519,6 +576,14 @@ class RegistrationCog(commands.Cog):
                 raise ValueError("iRacing ID not valid.")
             if not re.fullmatch(r"\d{1,3}", desired_league_number):
                 raise ValueError("Car Number not valid.")
+
+            # Look up the driver's name via the iRacing API
+            iracing_name = await self._get_iracing_name(int(iracing_id))
+            if iracing_name is None:
+                raise ValueError(
+                    "iRacing ID not found. Please double-check your Customer ID and try again."
+                )
+            user_data["iRacingName"] = iracing_name
 
             if desired_league_number in [m.get("CarNumber", "") for m in other_members]:
                 if existing_user:

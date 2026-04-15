@@ -464,10 +464,10 @@ class RegistrationCog(commands.Cog):
         Return the correct (X) prefix string based on penalty points.
 
         <3  : no prefix
-        3-4 : (X)
-        5-7 : (XX)
-        8-9 : (XXX)
-        >9  : (XXXX)
+        3-5 : (X)
+        6-8 : (XX)
+        9-11 : (XXX)
+        >11  : (XXXX)
         """
         try:
             pts = int(points)
@@ -476,11 +476,11 @@ class RegistrationCog(commands.Cog):
 
         if pts < 3:
             return ""
-        elif pts <= 4:
+        elif pts <= 5:
             return "(X)"
-        elif pts <= 7:
+        elif pts <= 8:
             return "(XX)"
-        elif pts <= 9:
+        elif pts <= 11:
             return "(XXX)"
         else:
             return "(XXXX)"

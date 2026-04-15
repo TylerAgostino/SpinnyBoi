@@ -16,6 +16,7 @@ services:
       - IRACING_CLIENT_SECRET=${IRACING_CLIENT_SECRET}
       - GOOGLE_CREDENTIALS_JSON=${GOOGLE_CREDENTIALS_JSON}
       - REGISTRATION_SHEET_ID=${REGISTRATION_SHEET_ID}
+      - ATTENDANCE_SHEET_ID=${ATTENDANCE_SHEET_ID}
     volumes:
       - spinny_db:/app/data
       - /mnt/user/apollo-share/Fonts:/usr/share/fonts/

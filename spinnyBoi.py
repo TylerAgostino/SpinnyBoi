@@ -1,15 +1,17 @@
 # pyright: basic
-import discord
-from discord.ext import commands
 import logging
 import os
+
+import discord
+from discord.ext import commands
+
 from modules import ChatHandler
+from modules.attendanceCog import AttendanceCog  # noqa: F401
 from modules.incidentCog import IncidentCog  # noqa: F401
-from modules.wheelCog import WheelCog  # noqa: F401
 from modules.reactionsCog import ReactionsCog  # noqa: F401
 from modules.registrationCog import RegistrationCog  # noqa: F401
 from modules.standingsCog import StandingsCog  # noqa: F401
-
+from modules.wheelCog import WheelCog  # noqa: F401
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -50,4 +52,5 @@ bot.add_cog(WheelCog(bot))
 bot.add_cog(ReactionsCog(bot))
 bot.add_cog(RegistrationCog(bot, "SpinnyBoiRegistrations", 1486186338410696837))
 bot.add_cog(StandingsCog(bot))
+bot.add_cog(AttendanceCog(bot))
 bot.run(os.getenv("BOT_TOKEN"))

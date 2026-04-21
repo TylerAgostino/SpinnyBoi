@@ -1,18 +1,20 @@
 # pyright: basic
-import discord
-from discord.ext import commands, tasks
-import os
-import logging
 import datetime
 import json
-import pytz
+import logging
+import os
 from typing import Dict, List, Optional, Tuple
+
+import discord
+import pytz
+from discord.ext import commands, tasks
+
 from modules import ChatHandler
 from modules.scheduler import (
-    init_db,
-    schedule_event,
     get_pending_events,
+    init_db,
     mark_event_completed,
+    schedule_event,
 )
 
 # Global dictionary to store example summaries
@@ -211,7 +213,10 @@ class IncidentCog(commands.Cog):
                 "🇧": "1 Point",
                 "🇨": "2 Points",
                 "🇩": "3 Points",
-                "🇪": "Other",
+                "🇪": "4 Points",
+                "🇫": "5 Points",
+                "🇬": "6 Points",
+                "🇭": "Other",
             }
 
             for react in message.reactions:

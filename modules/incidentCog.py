@@ -376,7 +376,10 @@ class IncidentCog(commands.Cog):
 :regional_indicator_b: 1 Point
 :regional_indicator_c: 2 Points
 :regional_indicator_d: 3 Points
-:regional_indicator_e: Other (Please explain below)
+:regional_indicator_e: 4 Points
+:regional_indicator_f: 5 Points
+:regional_indicator_g: 6 Points
+:regional_indicator_h: Other (Please explain below)
 
 -# Voting ends {next_sunday_date_str}
             """
@@ -386,6 +389,9 @@ class IncidentCog(commands.Cog):
             await bot_response.add_reaction("🇨")
             await bot_response.add_reaction("🇩")
             await bot_response.add_reaction("🇪")
+            await bot_response.add_reaction("🇫")
+            await bot_response.add_reaction("🇬")
+            await bot_response.add_reaction("🇭")
 
             # Schedule the poll to close at the specified time
             try:

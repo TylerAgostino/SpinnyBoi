@@ -25,7 +25,7 @@ class StandingsView(discord.ui.View):
     @discord.ui.select(
         placeholder="Select standings tables to fetch...",
         min_values=1,
-        max_values=7,
+        max_values=4,
         options=[
             discord.SelectOption(
                 label="Driver Standings",
@@ -34,22 +34,10 @@ class StandingsView(discord.ui.View):
                 default=True,
             ),
             discord.SelectOption(
-                label="Race-by-Race Driver Standings",
-                value="rbr_driver_standings",
-                description="Race-by-Race Driver Standings",
-                default=False,
-            ),
-            discord.SelectOption(
                 label="Team Standings",
                 value="team_standings",
                 description="Team championship standings",
                 default=True,
-            ),
-            discord.SelectOption(
-                label="Race-by-Race Team Standings",
-                value="rbr_team_standings",
-                description="Race-by-Race Team Standings",
-                default=False,
             ),
             discord.SelectOption(
                 label="League Stats",
@@ -61,12 +49,6 @@ class StandingsView(discord.ui.View):
                 label="AM Standings",
                 value="am_standings",
                 description="AM championship standings",
-                default=False,
-            ),
-            discord.SelectOption(
-                label="Race-by-Race AM Standings",
-                value="rbr_am_standings",
-                description="Race-by-Race AM Standings",
                 default=False,
             ),
         ],
@@ -115,18 +97,20 @@ class StandingsView(discord.ui.View):
                 selected_tables.append(
                     (
                         "Driver Standings",
-                        "driver_table",
-                        False,
+                        "standings-class-section",
+                        True,
                         "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812",
+                        "",
                     )
                 )
             elif table_value == "team_standings":
                 selected_tables.append(
                     (
                         "Team Standings",
-                        "team_table",
-                        False,
+                        "standings-class-section",
+                        True,
                         "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812",
+                        "Team Standings",
                     )
                 )
             elif table_value == "league_stats":
@@ -136,42 +120,17 @@ class StandingsView(discord.ui.View):
                         "react-table",
                         True,
                         "https://www.simracerhub.com/scoring/league_stats.php?season_id=28156",
-                    )
-                )
-            elif table_value == "rbr_driver_standings":
-                selected_tables.append(
-                    (
-                        "Race-by-Race Driver Standings",
-                        "driver_grid",
-                        False,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812&grid=y",
-                    )
-                )
-            elif table_value == "rbr_team_standings":
-                selected_tables.append(
-                    (
-                        "Race-by-Race Team Standings",
-                        "team_grid",
-                        False,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812&grid=y",
+                        "",
                     )
                 )
             elif table_value == "am_standings":
                 selected_tables.append(
                     (
                         "AM Standings",
-                        "driver_table",
-                        False,
+                        "standings-class-section",
+                        True,
                         "https://www.simracerhub.com/scoring/season_standings.php?series_id=13428",
-                    )
-                )
-            elif table_value == "rbr_am_standings":
-                selected_tables.append(
-                    (
-                        "Race-by-Race AM Standings",
-                        "driver_grid",
-                        False,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=13428&grid=y",
+                        "",
                     )
                 )
 
@@ -195,7 +154,7 @@ class StandingsView(discord.ui.View):
 
         # Process each selected table
         results = []
-        for table_name, table_selector, use_class, url in selected_tables:
+        for table_name, table_selector, use_class, url, tab_to_click in selected_tables:
             success = await self.cog._capture_and_send_table(
                 url=url,
                 table_selector=table_selector,
@@ -203,6 +162,7 @@ class StandingsView(discord.ui.View):
                 description=table_name,
                 additional_description=self.description,
                 use_class=use_class,
+                tab_to_click=tab_to_click,
             )
             results.append((table_name, success))
 
@@ -252,6 +212,7 @@ class StandingsCog(commands.Cog):
         description: str,
         additional_description: str = "",
         use_class: bool = False,
+        tab_to_click: str = "",
     ):
         """
         Navigate to a URL, capture a screenshot of a table element, and send it to a Discord channel.
@@ -277,8 +238,37 @@ class StandingsCog(commands.Cog):
             logging.info(f"Navigating to {url} for {description}")
             driver.get(url)
 
-            # Wait for the table to be present
-            wait = WebDriverWait(driver, 10)
+            # Wait for the initial page content to be present
+            wait = WebDriverWait(driver, 15)
+            if use_class:
+                wait.until(
+                    EC.presence_of_element_located((By.CLASS_NAME, table_selector))
+                )
+            else:
+                wait.until(EC.presence_of_element_located((By.ID, table_selector)))
+
+            # Give it a moment to fully render
+            import time
+
+            time.sleep(2)
+
+            # If a specific tab needs to be clicked, do so now
+            if tab_to_click:
+                logging.info(f"Clicking tab '{tab_to_click}' for {description}")
+                tab_element = wait.until(
+                    EC.element_to_be_clickable(
+                        (
+                            By.XPATH,
+                            "//button[contains(@class,'nav-link') and normalize-space(text())='"
+                            + tab_to_click
+                            + "']",
+                        )
+                    )
+                )
+                driver.execute_script("arguments[0].click();", tab_element)
+                time.sleep(2)
+
+            # Re-locate the element after any tab click
             if use_class:
                 table_element = wait.until(
                     EC.presence_of_element_located((By.CLASS_NAME, table_selector))
@@ -287,11 +277,6 @@ class StandingsCog(commands.Cog):
                 table_element = wait.until(
                     EC.presence_of_element_located((By.ID, table_selector))
                 )
-
-            # Give it a moment to fully render
-            import time
-
-            time.sleep(2)
 
             # Scroll the element into view
             driver.execute_script("arguments[0].scrollIntoView(true);", table_element)

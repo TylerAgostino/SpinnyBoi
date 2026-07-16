@@ -389,7 +389,7 @@ class AttendanceCog(commands.Cog):
         ctx: discord.ApplicationContext,
         subsession_id: int,
         round: int,
-        season: int = 15,
+        season: int = 16,
         sheet_name: Optional[str] = None,
         iracing_id_column: str = "iRacingID",
         min_completion_pct: float = 75.0,

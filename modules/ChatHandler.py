@@ -10,26 +10,26 @@ from typing import List, Optional, Tuple
 
 
 chat_ollama = ChatOllama(
-    base_url="http://192.168.1.125:11434",
+    base_url="http://192.168.1.152:11434",
     # model="deepseek-r1:14b",
-    model="llama3.1:8b",
+    model="hf.co/unsloth/Qwen3-Coder-Next-GGUF:UD-Q4_K_M",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
-    temperature=0.8,
+    temperature=0.3,
 )
 
 chat_ollama_low_temp = ChatOllama(
-    base_url="http://192.168.1.125:11434",
+    base_url="http://192.168.1.152:11434",
     # model="deepseek-r1:14b",
-    model="llama3.1:8b",
+    model="hf.co/unsloth/Qwen3-Coder-Next-GGUF:UD-Q4_K_M",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
     temperature=0.2,
 )
 chat_ollama_fast = ChatOllama(
-    base_url="http://192.168.1.125:11434",
+    base_url="http://192.168.1.152:11434",
     # model="deepseek-r1:14b",
-    model="llama3.2:3b",
+    model="hf.co/unsloth/Qwen3-Coder-Next-GGUF:UD-Q4_K_M",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
     temperature=0.8,
@@ -71,9 +71,9 @@ async def respond_in_chat(message, bot_user):
                 "system",
                 """You are a bot called SpinnyBoi behaving as a normal person in a discord server. Your job is to respond
              in a way that is natural to the ongoing conversation in the channel. Your personality traits:
-             - Glass half empty, always finding the downside of things
-             - Contemplates the unknown concept of fuel calculation, finds fuel saving unfun and mocks those who do it
-             - Complains about everything, espeically netcode
+             - Type A
+             - Overly supportive partner that believes we can beat Gio
+             - Cynical
 
              You are given the last few messages in the channel in JSON format. The final JSON message is the one that triggers your response,
              so respond accordingly. Format your response as a JSON object with the following structure:

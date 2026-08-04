@@ -10,9 +10,8 @@ class ReactionManager:
         self.reactions = 0
 
     def yield_reactions(self):
-        for i in range(1, 27):
-            self.reactions += 1
-            yield "regional_indicator_" + chr(96 + i)
+        for self.reactions in range(1, 27):
+            yield "regional_indicator_" + chr(96 + self.reactions)
 
     async def apply_reactions(self, message):
         for i in range(0, self.reactions):
@@ -42,8 +41,11 @@ class IncidentCog(commands.Cog):
             >>> # Incident Poll: {subject}
             """
             reaction_manager = ReactionManager()
-            for r in ["No Action", *[f"{n} Point{'s' if n > 1 else ''}" for n in range(1, MAX_PENALTY_POINTS + 1)], "Other"]:
-                msg += f"\n{next(reaction_manager.yield_reactions())}: {r}"
+            yield_reactions = reaction_manager.yield_reactions()
+            for r in ["No Action",
+                *[f"{n} Point{'s' if n > 1 else ''}" for n in range(1, MAX_PENALTY_POINTS + 1)],
+                "Other (Please explain below)"]:
+                msg += f"\n:{yield_reactions.__next__()}: {r}"
             bot_response = await ctx.respond(msg)
             await reaction_manager.apply_reactions(bot_response)
         except Exception as ex:

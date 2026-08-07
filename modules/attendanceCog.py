@@ -360,8 +360,8 @@ class AttendanceCog(commands.Cog):
         "season",
         int,
         required=False,
-        default=15,
-        description="The season number (default: 15). Column will be S{season}R{round}.",
+        default=16,
+        description="The season number (default: 16). Column will be S{season}R{round}.",
     )
     @discord.option(
         "sheet_name",

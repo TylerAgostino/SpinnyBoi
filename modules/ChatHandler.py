@@ -60,10 +60,6 @@ async def respond_in_chat(message, bot_user):
         except:
             pass
 
-    past_chat_messages = trim_messages(
-        past_chat_messages, max_tokens=1000, token_counter=chat_ollama
-    )
-
     agent = create_react_agent(chat_ollama, tools=[])
     rq = {
         "messages": [

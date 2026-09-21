@@ -5,7 +5,7 @@ pandas
 drawsvg[all]
 dataframe_image
 matplotlib
-langchain-ollama
+langchain-openai
 langchain
 langgraph
 transformers

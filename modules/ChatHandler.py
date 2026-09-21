@@ -1,35 +1,35 @@
 # pyright: basic
 from langchain_core.messages import SystemMessage, trim_messages, HumanMessage
 from langsmith import traceable
-from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
+from langchain_openai import ChatOpenAI
 import json
 import logging
 import discord
 from typing import List, Optional, Tuple
 
 
-chat_ollama = ChatOllama(
-    base_url="http://192.168.1.152:11434",
+chat_ollama = ChatOpenAI(
+    base_url="http://192.168.1.152:11080",
     # model="deepseek-r1:14b",
-    model="hf.co/unsloth/Qwen3-Coder-Next-GGUF:UD-Q4_K_M",
+    model="unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
     temperature=0.3,
 )
 
-chat_ollama_low_temp = ChatOllama(
-    base_url="http://192.168.1.152:11434",
+chat_ollama_low_temp = ChatOpenAI(
+    base_url="http://192.168.1.152:11080",
     # model="deepseek-r1:14b",
-    model="hf.co/unsloth/Qwen3-Coder-Next-GGUF:UD-Q4_K_M",
+    model="unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
     temperature=0.2,
 )
-chat_ollama_fast = ChatOllama(
-    base_url="http://192.168.1.152:11434",
+chat_ollama_fast = ChatOpenAI(
+    base_url="http://192.168.1.152:11080",
     # model="deepseek-r1:14b",
-    model="hf.co/unsloth/Qwen3-Coder-Next-GGUF:UD-Q4_K_M",
+    model="unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS",
     # model="gemma3:1b",
     # model="mistral:7b-instruct",
     temperature=0.8,

@@ -50,7 +50,7 @@ async def on_message(message):
 bot.add_cog(IncidentCog(bot))
 bot.add_cog(WheelCog(bot))
 bot.add_cog(ReactionsCog(bot))
-bot.add_cog(RegistrationCog(bot, "SpinnyBoiRegistrations", 1518710346443919390))
+bot.add_cog(RegistrationCog(bot, "SpinnyBoiRegistrations", 1551759071533858838))
 bot.add_cog(StandingsCog(bot))
 bot.add_cog(AttendanceCog(bot))
 bot.run(os.getenv("BOT_TOKEN"))

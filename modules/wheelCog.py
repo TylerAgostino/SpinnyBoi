@@ -86,9 +86,9 @@ def wheel_command(needs_driver=True, is_interaction=True):
             # First defer the interaction
             if is_interaction:
                 await ctx.defer()
-                bot_response = await ctx.respond(ChatHandler.working_on_it())
+                bot_response = await ctx.respond(await ChatHandler.working_on_it())
             else:
-                bot_response = await ctx.send(ChatHandler.working_on_it())
+                bot_response = await ctx.send(await ChatHandler.working_on_it())
 
             driver = None
             try:

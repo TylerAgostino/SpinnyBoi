@@ -1,13 +1,13 @@
 # pyright: basic
-from langchain_core.messages import SystemMessage, trim_messages, HumanMessage
-from langsmith import traceable
-from langgraph.prebuilt import create_react_agent
-from langchain_openai import ChatOpenAI
 import json
 import logging
-import discord
 from typing import List, Optional, Tuple
 
+import discord
+from langchain_core.messages import HumanMessage, SystemMessage, trim_messages
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from langsmith import traceable
 
 chat_ollama = ChatOpenAI(
     base_url="http://192.168.1.152:11080",
@@ -101,7 +101,7 @@ async def respond_in_chat(message, bot_user):
     x = 0
     r = None
     while x < 3 and r is None:
-        response = agent.invoke(rq)
+        response = await agent.ainvoke(rq)
         msg = response["messages"][-1].content
         msg = msg.replace("\\", "\\\\")
         if "</think>" in msg:
@@ -128,8 +128,8 @@ async def respond_in_chat(message, bot_user):
         return r
 
 
-def working_on_it():
-    response = chat_ollama_fast.invoke(
+async def working_on_it():
+    response = await chat_ollama_fast.ainvoke(
         [
             (
                 "user",
@@ -348,7 +348,7 @@ Notes:
         messages.append(HumanMessage(content=user_message))
 
         # Invoke the LLM for summarization - using the larger model for better summarization quality
-        response = chat_ollama_low_temp.invoke(messages)
+        response = await chat_ollama_low_temp.ainvoke(messages)
 
         # Return the summarized content
         return response.content

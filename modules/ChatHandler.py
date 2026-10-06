@@ -1,71 +1,101 @@
 # pyright: basic
 import json
 import logging
+import os
 from typing import List, Optional, Tuple
 
 import discord
-from langchain_core.messages import HumanMessage, SystemMessage, trim_messages
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-from langsmith import traceable
+from strands import Agent
+from strands.models.openai import OpenAIModel
 
-chat_ollama = ChatOpenAI(
-    base_url="http://192.168.1.152:11080",
-    # model="deepseek-r1:14b",
-    model="unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS",
-    # model="gemma3:1b",
-    # model="mistral:7b-instruct",
-    temperature=0.3,
-)
-
-chat_ollama_low_temp = ChatOpenAI(
-    base_url="http://192.168.1.152:11080",
-    # model="deepseek-r1:14b",
-    model="unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS",
-    # model="gemma3:1b",
-    # model="mistral:7b-instruct",
-    temperature=0.2,
-)
-chat_ollama_fast = ChatOpenAI(
-    base_url="http://192.168.1.152:11080",
-    # model="deepseek-r1:14b",
-    model="unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS",
-    # model="gemma3:1b",
-    # model="mistral:7b-instruct",
-    temperature=0.8,
-)
+OLLAMA_BASE_URL = "http://192.168.1.152:11080/v1"
+OLLAMA_MODEL = "unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS"
+# model="deepseek-r1:14b"
+# model="gemma3:1b"
+# model="mistral:7b-instruct"
 
 
-@traceable
-async def respond_in_chat(message, bot_user):
-    channel = await bot_user.fetch_channel(message.channel.id)
-    # channel = bot_user.get_channel(1292642327566745601)
-    history = [m async for m in channel.history(limit=100, before=message)]
-    history.reverse()
-    past_chat_messages = []
-    for m in history:
-        try:
-            past_chat_messages.append(
-                SystemMessage(
-                    json.dumps(
-                        {
-                            "user": m.author.nick if m.author.nick else m.author.name,
-                            "user_id": m.author.id,
-                            "content": m.content,
-                            "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                    )
-                )
-            )
-        except:
-            pass
+def _make_model(temperature: float) -> OpenAIModel:
+    # The OpenAI client requires a non-empty api_key even for local
+    # OpenAI-compatible servers that ignore it.
+    return OpenAIModel(
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY", "ollama"),
+            "base_url": OLLAMA_BASE_URL,
+        },
+        model_id=OLLAMA_MODEL,
+        params={"temperature": temperature},
+    )
 
-    agent = create_react_agent(chat_ollama, tools=[])
-    rq = {
-        "messages": [
-            (
-                "system",
-                """You are a bot called SpinnyBoi behaving as a normal person in a discord server. Your job is to respond
+
+chat_ollama = _make_model(0.3)
+chat_ollama_low_temp = _make_model(0.2)
+chat_ollama_fast = _make_model(0.8)
+
+
+def _make_agent(model, system_prompt=None, messages=None) -> Agent:
+    """Factory for the tool-free agents used by every call site.
+
+    A fresh Agent is built per invocation so ``agent.messages`` never
+    accumulates across Discord messages (history is rebuilt from Discord
+    each time and would otherwise be double-counted).
+    """
+    return Agent(model=model, system_prompt=system_prompt, messages=messages, tools=[])
+
+
+def _extract_text(result) -> str:
+    """Pull the final assistant text out of a strands AgentResult.
+
+    Reasoning-model thinking blocks arrive as separate ``reasoningContent``
+    content blocks and are excluded here, so only the actual answer text is
+    passed downstream.
+    """
+    if isinstance(result, str):
+        return result
+    message = getattr(result, "message", None)
+    if message is None and isinstance(result, dict):
+        message = result.get("message")
+    if isinstance(message, dict):
+        blocks = message.get("content") or []
+        return "".join(
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        )
+    return str(result)
+
+
+def _parse_chat_reply(msg: str) -> Tuple[str, Optional[str]]:
+    """Run the JSON-repair pipeline over one raw model reply.
+
+    Returns ``(transformed_msg, content)``. ``transformed_msg`` is the reply
+    after the escape/``</think>``/brace-clip transformations (returned
+    verbatim by the caller when every attempt fails); ``content`` is the
+    parsed ``"content"`` field, or ``None`` if the reply could not be parsed.
+    Raises ``KeyError`` for parseable JSON without a ``"content"`` key,
+    matching the previous behavior.
+    """
+    msg = msg.replace("\\", "\\\\")
+    if "</think>" in msg:
+        msg = msg.split("</think>")[1]
+    try:
+        if not msg.startswith("{"):
+            msg = msg.split("{")[1]
+            msg = "{" + msg
+        if "}" in msg and not msg.endswith("}"):
+            msg = msg.split("}")[0]
+            msg = msg + "}"
+        final_json = json.loads(msg)
+        response = final_json["content"]
+        response = response.replace("\\n", "\n").replace("\\", "")
+        return msg, response
+    except IndexError:
+        return msg, None
+    except json.JSONDecodeError:
+        return msg, None
+
+
+CHAT_SYSTEM_PROMPT = """You are a bot called SpinnyBoi behaving as a normal person in a discord server. Your job is to respond
              in a way that is natural to the ongoing conversation in the channel. Your personality traits:
              - Type A
              - Overly supportive partner that believes we can beat Gio
@@ -78,49 +108,53 @@ async def respond_in_chat(message, bot_user):
                     "content": <response>
                 }}
             Do not sign your messages or add any extra text outside the JSON object.
-                """,
-            ),
-            *past_chat_messages,
-            (
-                "user",
-                json.dumps(
-                    {
-                        "user": (
-                            message.author.nick
-                            if message.author.nick
-                            else message.author.name
-                        ),
-                        "user_id": message.author.id,
-                        "content": message.content,
-                        "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                ),
-            ),
-        ]
-    }
+                """
+
+
+async def respond_in_chat(message, bot_user):
+    channel = await bot_user.fetch_channel(message.channel.id)
+    # channel = bot_user.get_channel(1292642327566745601)
+    history = [m async for m in channel.history(limit=100, before=message)]
+    history.reverse()
+    past_chat_messages = []
+    for m in history:
+        try:
+            past_chat_messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "text": json.dumps(
+                                {
+                                    "user": m.author.nick if m.author.nick else m.author.name,
+                                    "user_id": m.author.id,
+                                    "content": m.content,
+                                    "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                                }
+                            )
+                        }
+                    ],
+                }
+            )
+        except:
+            pass
+
+    trigger = json.dumps(
+        {
+            "user": message.author.nick if message.author.nick else message.author.name,
+            "user_id": message.author.id,
+            "content": message.content,
+            "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    )
+
     x = 0
     r = None
+    msg = None
     while x < 3 and r is None:
-        response = await agent.ainvoke(rq)
-        msg = response["messages"][-1].content
-        msg = msg.replace("\\", "\\\\")
-        if "</think>" in msg:
-            msg = msg.split("</think>")[1]
-        try:
-            if not msg.startswith("{"):
-                msg = msg.split("{")[1]
-                msg = "{" + msg
-            if "}" in msg and not msg.endswith("}"):
-                msg = msg.split("}")[0]
-                msg = msg + "}"
-            final_json = json.loads(msg)
-            response = final_json["content"]
-            response = response.replace("\\n", "\n").replace("\\", "")
-            r = response
-        except IndexError:
-            pass
-        except json.JSONDecodeError:
-            pass
+        agent = _make_agent(chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages)
+        response = await agent.invoke_async(trigger)
+        msg, r = _parse_chat_reply(_extract_text(response))
         x += 1  # Increment counter to avoid infinite loop
     if r is None:
         return msg
@@ -129,11 +163,9 @@ async def respond_in_chat(message, bot_user):
 
 
 async def working_on_it():
-    response = await chat_ollama_fast.ainvoke(
-        [
-            (
-                "user",
-                """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
+    agent = _make_agent(chat_ollama_fast)
+    response = await agent.invoke_async(
+        """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
 Rules:
 - Output exactly one message.
 - Be playful and sarcastic, slightly impatient, but not offensive.
@@ -143,15 +175,12 @@ Rules:
 - Do not put the message in quotes.
 
 Example styles: "I'm working on it, relax.", "Hold your horses, speed racer.", "Patience, mortal."
-""",
-            ),
-        ]
+"""
     )
-    msg = response.content
+    msg = _extract_text(response)
     return msg
 
 
-@traceable
 async def summarize_thread(
     thread: discord.Thread,
     subject: str,
@@ -323,8 +352,11 @@ Notes:
 
 """
 
-        # Set up messages for the LLM
-        messages = [SystemMessage(content=system_prompt)]
+        # Set up the conversation for the LLM. The steward rules move to the
+        # agent's system prompt; the one-shot example answer becomes an
+        # assistant-role turn (strands keeps a single system prompt per agent
+        # rather than interleaving system blocks mid-conversation).
+        conversation = []
 
         # Add one-shot example if available
         if example_summary:
@@ -333,11 +365,21 @@ Notes:
                 "Here's an example conversation about an incident:\n"
                 + json.dumps(example_thread_messages, indent=2)
             )
-            messages.append(HumanMessage(content=example_user_message))
-            messages.append(
-                SystemMessage(
-                    content=f"Here's an example of a well written decision for that example conversation:\n\n{example_summary_text}"
-                )
+            conversation.append(
+                {
+                    "role": "user",
+                    "content": [{"text": example_user_message}],
+                }
+            )
+            conversation.append(
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "text": f"Here's an example of a well written decision for that example conversation:\n\n{example_summary_text}"
+                        }
+                    ],
+                }
             )
 
         # Add the current thread to summarize
@@ -345,13 +387,15 @@ Notes:
             "Here's the conversation history you are to summarize:\n"
             + json.dumps(formatted_messages, indent=2)
         )
-        messages.append(HumanMessage(content=user_message))
 
         # Invoke the LLM for summarization - using the larger model for better summarization quality
-        response = await chat_ollama_low_temp.ainvoke(messages)
+        agent = _make_agent(
+            chat_ollama_low_temp, system_prompt=system_prompt, messages=conversation
+        )
+        result = await agent.invoke_async(user_message)
 
         # Return the summarized content
-        return response.content
+        return _extract_text(result)
 
     except Exception as e:
         logging.error(f"Error summarizing thread: {str(e)}")

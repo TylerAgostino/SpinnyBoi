@@ -6,9 +6,6 @@ services:
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - GSHEET_ID=${GSHEET_ID}
-      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
-      - LANGCHAIN_TRACING_V2=true
-      - LANGCHAIN_PROJECT=spinnyboi
       - DATABASE_URL=sqlite:///data/spinny.db
       - IRACING_EMAIL=${IRACING_EMAIL}
       - IRACING_PASSWORD=${IRACING_PASSWORD}

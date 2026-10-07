@@ -125,17 +125,58 @@ class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
         srh = MagicMock()
         srh.stats_tool.return_value = "the-tool"
         with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
-             patch.object(ChatHandler, "get_simracerhub", return_value=srh):
+             patch.object(ChatHandler, "get_simracerhub", return_value=srh), \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None):
             out = await ChatHandler.respond_in_chat(trigger, bot)
         self.assertEqual(out, "tucker")
         _, kwargs = make_agent.call_args
         self.assertEqual(kwargs["tools"], ["the-tool"])
 
-    async def test_no_tools_when_simracerhub_disabled(self):
+    async def test_all_tools_registered_in_order(self):
+        trigger = make_discord_message("admin stuff and news and stats")
+        bot = make_bot_user([])
+        agent = fake_agent(['{"content": "ok"}'])
+        memory = MagicMock()
+        memory.lookup_tool.return_value = "memory-tool"
+        web = MagicMock()
+        web.lookup_tool.return_value = "web-tool"
+        srh = MagicMock()
+        srh.stats_tool.return_value = "srh-tool"
+        with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=memory), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=web), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=srh):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "ok")
+        _, kwargs = make_agent.call_args
+        self.assertEqual(
+            kwargs["tools"], ["memory-tool", "web-tool", "srh-tool"]
+        )
+
+    async def test_broken_tool_skipped_gracefully(self):
+        """A getter raising must not kill the reply - other tools still register."""
+        trigger = make_discord_message("hey")
+        bot = make_bot_user([])
+        agent = fake_agent(['{"content": "yo"}'])
+        web = MagicMock()
+        web.lookup_tool.return_value = "web-tool"
+        with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", side_effect=RuntimeError("boom")), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=web), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "yo")
+        _, kwargs = make_agent.call_args
+        self.assertEqual(kwargs["tools"], ["web-tool"])
+
+    async def test_no_tools_when_all_disabled(self):
         trigger = make_discord_message("hey")
         bot = make_bot_user([])
         agent = fake_agent(['{"content": "yo"}'])
         with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
              patch.object(ChatHandler, "get_simracerhub", return_value=None):
             await ChatHandler.respond_in_chat(trigger, bot)
         _, kwargs = make_agent.call_args

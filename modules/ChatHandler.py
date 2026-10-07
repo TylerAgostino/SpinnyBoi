@@ -180,15 +180,18 @@ async def respond_in_chat(message, bot_user):
     r = None
     msg = None
     tools = []
-    memory = get_league_memory()
-    if memory is not None:
-        tools.append(memory.lookup_tool())
-    web_lookup = get_web_lookup()
-    if web_lookup is not None:
-        tools.append(web_lookup.lookup_tool())
-    simracerhub = get_simracerhub()
-    if simracerhub is not None:
-        tools.append(simracerhub.stats_tool())
+    for get_tool in (
+        lambda: get_league_memory().lookup_tool(),
+        lambda: get_web_lookup().lookup_tool(),
+        lambda: get_simracerhub().stats_tool(),
+    ):
+        try:
+            tools.append(get_tool())
+        except Exception:
+            # A disabled or broken tool must never kill the chat reply;
+            # the getters return None when disabled (AttributeError lands
+            # here) and any other failure is logged and skipped.
+            logging.exception("Chat tool unavailable; continuing without it.")
     while x < 3 and r is None:
         agent = _make_agent(
             chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages, tools=tools

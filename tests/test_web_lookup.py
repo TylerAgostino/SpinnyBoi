@@ -271,7 +271,9 @@ class ToolRegistrationTests(unittest.TestCase):
             return agent
 
         with patch.object(ChatHandler, "_make_agent", side_effect=fake_make_agent), \
-             patch.object(ChatHandler, "get_web_lookup", return_value=instance):
+             patch.object(ChatHandler, "get_web_lookup", return_value=instance), \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
             out = asyncio.run(ChatHandler.respond_in_chat(trigger, bot))
 
         self.assertEqual(out, "done")
@@ -291,6 +293,8 @@ class ToolRegistrationTests(unittest.TestCase):
         agent.invoke_async = AsyncMock(side_effect=invoke_async)
 
         with patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None), \
              patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent:
             out = asyncio.run(ChatHandler.respond_in_chat(trigger, bot))
 

@@ -8,6 +8,9 @@ import discord
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
+from modules.league_memory import get_league_memory
+from modules.web_lookup import get_web_lookup
+
 OLLAMA_BASE_URL = "http://192.168.1.152:11080/v1"
 OLLAMA_MODEL = "unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ3_XXS"
 # model="deepseek-r1:14b"
@@ -33,14 +36,19 @@ chat_ollama_low_temp = _make_model(0.2)
 chat_ollama_fast = _make_model(0.8)
 
 
-def _make_agent(model, system_prompt=None, messages=None) -> Agent:
-    """Factory for the tool-free agents used by every call site.
+def _make_agent(model, system_prompt=None, messages=None, tools=None) -> Agent:
+    """Factory for the agents used by every call site.
 
     A fresh Agent is built per invocation so ``agent.messages`` never
     accumulates across Discord messages (history is rebuilt from Discord
     each time and would otherwise be double-counted).
     """
-    return Agent(model=model, system_prompt=system_prompt, messages=messages, tools=[])
+    return Agent(
+        model=model,
+        system_prompt=system_prompt,
+        messages=messages,
+        tools=tools or [],
+    )
 
 
 def _extract_text(result) -> str:
@@ -101,6 +109,25 @@ CHAT_SYSTEM_PROMPT = """You are a bot called SpinnyBoi behaving as a normal pers
              - Overly supportive partner that believes we can beat Gio
              - Cynical
 
+             You may have access to tools. Use a tool ONLY when the current
+             conversation genuinely needs it - most messages need no tool at all,
+             and you should answer from personality and context alone. When a tool
+             does fire, summarize what it returns into a short, in-character reply;
+             never paste or recite raw results, never give a long research dump, and
+             never mention the tool itself.
+             - lookup_league_info: the league's announcements, schedules, and rules.
+               Use it for administrative questions (session times, rules,
+               registration, announcements) and answer from what it returns.
+             - lookup_web_topic: quick, current information (recent news, current
+               events, who won what, today's facts). Use it when someone references
+               something topical you wouldn't already know, and weave the result in.
+             - get_simracerhub_stats: the league's racing data on SimRacerHub -
+               season standings (points, wins, incidents, safety rating per driver)
+               and recent race results (start/finish position, points). Use it when
+               someone asks about league results, who is winning the championship,
+               how someone has been racing, or crash counts; weave the numbers in
+               naturally.
+
              You are given the last few messages in the channel in JSON format. The final JSON message is the one that triggers your response,
              so respond accordingly. Format your response as a JSON object with the following structure:
                 {{
@@ -151,8 +178,17 @@ async def respond_in_chat(message, bot_user):
     x = 0
     r = None
     msg = None
+    tools = []
+    memory = get_league_memory()
+    if memory is not None:
+        tools.append(memory.lookup_tool())
+    web_lookup = get_web_lookup()
+    if web_lookup is not None:
+        tools.append(web_lookup.lookup_tool())
     while x < 3 and r is None:
-        agent = _make_agent(chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages)
+        agent = _make_agent(
+            chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages, tools=tools
+        )
         response = await agent.invoke_async(trigger)
         msg, r = _parse_chat_reply(_extract_text(response))
         x += 1  # Increment counter to avoid infinite loop

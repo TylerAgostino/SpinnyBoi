@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 from modules import ChatHandler
+from modules.league_memory import get_league_memory
 from modules.attendanceCog import AttendanceCog  # noqa: F401
 from modules.incidentCog import IncidentCog  # noqa: F401
 from modules.reactionsCog import ReactionsCog  # noqa: F401
@@ -27,6 +28,15 @@ bot = commands.Bot(
     debug_guilds=[420037391454044171, 981935710514839572],
     intents=intents,
 )
+
+
+@bot.listen()
+async def on_ready():
+    # Build the league vector store in the background so message handling
+    # is never blocked by startup indexing.
+    memory = get_league_memory()
+    if memory is not None:
+        memory.start_indexing(bot)
 
 
 @bot.listen()

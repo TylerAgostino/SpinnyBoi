@@ -9,6 +9,7 @@ from strands import Agent
 from strands.models.openai import OpenAIModel
 
 from modules.league_memory import get_league_memory
+from modules.simracerhub import get_simracerhub
 from modules.web_lookup import get_web_lookup
 
 OLLAMA_BASE_URL = "http://192.168.1.152:11080/v1"
@@ -185,6 +186,9 @@ async def respond_in_chat(message, bot_user):
     web_lookup = get_web_lookup()
     if web_lookup is not None:
         tools.append(web_lookup.lookup_tool())
+    simracerhub = get_simracerhub()
+    if simracerhub is not None:
+        tools.append(simracerhub.stats_tool())
     while x < 3 and r is None:
         agent = _make_agent(
             chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages, tools=tools

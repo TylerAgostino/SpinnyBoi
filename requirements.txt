@@ -7,6 +7,7 @@ dataframe_image
 matplotlib
 strands-agents
 strands-agents[openai]
+numpy
 transformers
 aiosqlite
 pytz

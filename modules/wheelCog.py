@@ -1,13 +1,11 @@
 # pyright: basic
 import asyncio
 import datetime
-import functools
 import io
 import json
 import logging
 import os
 import random
-import typing  # For type hinting
 import uuid
 from functools import wraps
 from typing import Optional
@@ -29,15 +27,31 @@ from modules.scheduler.scheduler import (
 )
 
 
-async def get_presets(a):
+# The WheelCog instance. The autocomplete callbacks below are module-level
+# callables (required by discord.utils.basic_autocomplete) and read the
+# cog's cached presets frame instead of fetching from Google per keystroke.
+_wheel_cog: Optional["WheelCog"] = None
+
+
+def _presets_csv_url() -> str:
     base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
-    presets_df = pd.read_csv(f"{base_url}/gviz/tq?tqx=out:csv&sheet={'presets'}")
+    return f"{base_url}/gviz/tq?tqx=out:csv&sheet=presets"
+
+
+async def _presets_frame() -> pd.DataFrame:
+    """Return the cached presets frame; fetch off-loop only when absent."""
+    if _wheel_cog is not None and _wheel_cog.presets_df is not None:
+        return _wheel_cog.presets_df
+    return await asyncio.to_thread(pd.read_csv, _presets_csv_url())
+
+
+async def get_presets(a):
+    presets_df = await _presets_frame()
     return [x["Fullname"] for x in presets_df.to_dict("records")]
 
 
 async def get_preset_tabs(ctx):
-    base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
-    presets_df = pd.read_csv(f"{base_url}/gviz/tq?tqx=out:csv&sheet={'presets'}")
+    presets_df = await _presets_frame()
     preset_name = ctx.options.get("preset_name", "")
     if not preset_name:
         return []
@@ -52,14 +66,6 @@ async def get_preset_tabs(ctx):
     except Exception as e:
         logging.error(f"Error getting tabs for preset {preset_name}: {str(e)}")
         return []
-
-
-def to_thread(func: typing.Callable):
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        return await asyncio.to_thread(func, *args, **kwargs)
-
-    return wrapper
 
 
 class NoTabError(Exception):
@@ -205,16 +211,20 @@ class WheelCog(commands.Cog):
         self.bot = bot
         self.check_scheduled_events.start()
         self.refresh_presets.start()
+        # Module-level autocomplete callbacks read this cog's cached frame.
+        global _wheel_cog
+        _wheel_cog = self
 
     spin = discord.SlashCommandGroup("spin", "Spin commands")
     schedule = discord.SlashCommandGroup("schedule", "Schedule commands")
 
     @tasks.loop(minutes=5)
     async def refresh_presets(self):
-        """Refresh the presets dataframe every minute."""
+        """Refresh the presets dataframe every 5 minutes."""
         try:
-            self.presets_df = pd.read_csv(self.ghseet_url("presets"))
-            logging.info("Presets dataframe refreshed successfully.")
+            self.presets_df = await asyncio.to_thread(
+                pd.read_csv, self.ghseet_url("presets")
+            )
         except Exception as e:
             logging.error(f"Error refreshing presets dataframe: {str(e)}")
 
@@ -412,7 +422,7 @@ class WheelCog(commands.Cog):
         """Get information about the weights for a particular tab (wheel) of a preset"""
         await self.spinfo(ctx=ctx, preset_name=preset_name, tab_name=tab_name)
 
-    @wheel_command()
+    @wheel_command(needs_driver=False)
     async def spinfo(self, ctx, preset_name, tab_name, driver=None, bot_response=None):
         try:
             self.presets_df = await asyncio.to_thread(
@@ -634,7 +644,7 @@ class WheelCog(commands.Cog):
     @wheel_command(needs_driver=False)
     async def spin_auditor(self, ctx, bot_response=None):
         webhook_url = "http://192.168.1.125:9996/api/stacks/webhooks/b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
-        req = requests.post(webhook_url)
+        req = await asyncio.to_thread(requests.post, webhook_url)
         logging.info("Request sent to webhook: %s", req.status_code)
         return (
             "I've sent a request to restart the auditor. It should post shortly.",
@@ -694,7 +704,9 @@ class WheelCog(commands.Cog):
     ):
         """Schedule a preset spin in the current channel for a specific day and time."""
         await ctx.defer()
-        self.presets_df = pd.read_csv(self.ghseet_url("presets"))
+        self.presets_df = await asyncio.to_thread(
+            pd.read_csv, self.ghseet_url("presets")
+        )
 
         # Get the current date
         now = datetime.datetime.now()

@@ -1,7 +1,9 @@
 # pyright: basic
+import asyncio
 import io
 import logging
 import os
+import time
 
 import discord
 from discord.ext import commands
@@ -217,6 +219,9 @@ class StandingsCog(commands.Cog):
         """
         Navigate to a URL, capture a screenshot of a table element, and send it to a Discord channel.
 
+        The Selenium capture runs in a worker thread so the event loop stays
+        free to ack other interactions during the multi-second capture.
+
         Args:
             url: The URL to navigate to
             table_selector: The ID or class of the table element to screenshot
@@ -229,6 +234,50 @@ class StandingsCog(commands.Cog):
             logging.warning(f"Channel ID not configured for {description}")
             return False
 
+        try:
+            img_byte_arr = await asyncio.to_thread(
+                self._capture_table_png,
+                url,
+                table_selector,
+                use_class,
+                tab_to_click,
+                description,
+            )
+        except Exception as ex:
+            logging.error(f"Error capturing/sending {description}: {str(ex)}")
+            return False
+
+        try:
+            # Get the Discord channel
+            channel = await self.bot.fetch_channel(channel_id)
+            if not channel:
+                logging.error(f"Channel {channel_id} not found for {description}")
+                return False
+
+            # Send the image to Discord
+            file = discord.File(
+                img_byte_arr, filename=f"{description.replace(' ', '_')}.png"
+            )
+            message_text = f"**{description}**"
+            if additional_description:
+                message_text += f"\n{additional_description}"
+            await channel.send(message_text, file=file)
+
+            logging.info(f"Successfully sent {description} to channel {channel_id}")
+            return True
+        except Exception as ex:
+            logging.error(f"Error capturing/sending {description}: {str(ex)}")
+            return False
+
+    def _capture_table_png(
+        self,
+        url: str,
+        table_selector: str,
+        use_class: bool,
+        tab_to_click: str,
+        description: str,
+    ) -> io.BytesIO:
+        """Blocking: drive Firefox, wait for the table element, screenshot it."""
         driver = None
         try:
             # Setup driver
@@ -248,8 +297,6 @@ class StandingsCog(commands.Cog):
                 wait.until(EC.presence_of_element_located((By.ID, table_selector)))
 
             # Give it a moment to fully render
-            import time
-
             time.sleep(2)
 
             # If a specific tab needs to be clicked, do so now
@@ -292,28 +339,7 @@ class StandingsCog(commands.Cog):
             img_byte_arr = io.BytesIO()
             cropped_image.save(img_byte_arr, format="PNG")
             img_byte_arr.seek(0)
-
-            # Get the Discord channel
-            channel = await self.bot.fetch_channel(channel_id)
-            if not channel:
-                logging.error(f"Channel {channel_id} not found for {description}")
-                return False
-
-            # Send the image to Discord
-            file = discord.File(
-                img_byte_arr, filename=f"{description.replace(' ', '_')}.png"
-            )
-            message_text = f"**{description}**"
-            if additional_description:
-                message_text += f"\n{additional_description}"
-            await channel.send(message_text, file=file)
-
-            logging.info(f"Successfully sent {description} to channel {channel_id}")
-            return True
-
-        except Exception as ex:
-            logging.error(f"Error capturing/sending {description}: {str(ex)}")
-            return False
+            return img_byte_arr
         finally:
             if driver:
                 driver.quit()

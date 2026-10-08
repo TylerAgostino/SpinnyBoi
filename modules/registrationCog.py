@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 import discord
@@ -25,6 +26,9 @@ except ImportError:
     GOOGLE_APIS_AVAILABLE = False
 
 
+# How long the cached registration user list is considered fresh. Stale
+# entries are served immediately while a background task refreshes them.
+_USERS_CACHE_TTL = 300.0
 class RegistrationCog(commands.Cog):
     """
     A cog for managing user registration with Google Sheets integration.
@@ -38,8 +42,19 @@ class RegistrationCog(commands.Cog):
         self.users_sheet_name = sheet_name
         self.driver_role_id = role_id
         self._iracing_api: Optional[iRacingAPIHandler] = None
+        # Cached user list so /register can answer with its modal within
+        # Discord's 3-second interaction window instead of waiting on the
+        # (blocking) Sheets API. Writes invalidate it; reads refresh it.
+        self._users_cache: Optional[List[Dict[str, Any]]] = None
+        self._users_cache_ts: float = 0.0
+        self._users_refreshing: bool = False
         # Init Google Sheets API
         self._init_google_sheets()
+
+    async def cog_load(self) -> None:
+        # Warm the user cache off any interaction deadline so the first
+        # /register can pre-fill its modal without blocking on Sheets.
+        asyncio.create_task(self._refresh_users_cache())
 
     class RegistrationModal(discord.ui.Modal):
         def __init__(self, cog, *args, **kwargs) -> None:
@@ -226,9 +241,19 @@ class RegistrationCog(commands.Cog):
         """
         Read all users from the registration spreadsheet.
 
+        The blocking Sheets API calls run in a worker thread so the event
+        loop stays free to ack interactions; fresh rows also refresh the
+        user-list cache.
+
         Returns:
             List of user dictionaries with their registration data
         """
+        users = await asyncio.to_thread(self._read_users_sync)
+        self._users_cache = users
+        self._users_cache_ts = time.monotonic()
+        return users
+
+    def _read_users_sync(self) -> List[Dict[str, Any]]:
         try:
             service = self._get_service()
             if not service or not self.spreadsheet_id:
@@ -285,29 +310,51 @@ class RegistrationCog(commands.Cog):
 
     async def find_user(self, discord_id: int) -> Optional[Dict[str, Any]]:
         """
-        Find a user by Discord ID in the registration spreadsheet.
+        Find a user by Discord ID using the cached registration list.
+
+        Serves from cache so /register can answer with its modal within
+        Discord's 3-second interaction window; stale caches are refreshed
+        by a background task. Callers that need fresh rows (e.g. the
+        add-vs-update decision in register_driver) go through read_users().
 
         Args:
             discord_id: The Discord user ID to search for
 
         Returns:
-            User data dictionary if found, None otherwise
+            User data dictionary if found in the cached list, None otherwise
         """
+        users = self._users_cache
+        if users is None or time.monotonic() - self._users_cache_ts > _USERS_CACHE_TTL:
+            asyncio.create_task(self._refresh_users_cache())
+        return self._match_user(users or [], discord_id)
+
+    @staticmethod
+    def _match_user(
+        users: List[Dict[str, Any]], discord_id: int
+    ) -> Optional[Dict[str, Any]]:
+        for user in users:
+            # Convert the stored Discord ID to str for comparison
+            stored_id = user.get("DiscordID", "")
+            if stored_id and str(stored_id) == str(discord_id):
+                return user
+        return None
+
+    async def _refresh_users_cache(self) -> None:
+        """Refresh the user-list cache off any interaction deadline."""
+        if self._users_refreshing:
+            return
+        self._users_refreshing = True
         try:
-            users = await self.read_users()
-            for user in users:
-                # Convert the stored Discord ID to int for comparison
-                stored_id = user.get("DiscordID", "")
-                if stored_id and str(stored_id) == str(discord_id):
-                    return user
-            return None
-        except Exception as ex:
-            logging.error(f"Error finding user: {str(ex)}")
-            return None
+            await self.read_users()
+        finally:
+            self._users_refreshing = False
 
     async def add_user(self, user_data: Dict[str, Any]) -> bool:
         """
         Add a new user to the registration spreadsheet.
+
+        Runs the blocking Sheets calls in a worker thread and invalidates
+        the user-list cache on success.
 
         Args:
             user_data: Dictionary containing user data to add
@@ -315,6 +362,12 @@ class RegistrationCog(commands.Cog):
         Returns:
             True if successful, False otherwise
         """
+        added = await asyncio.to_thread(self._add_user_sync, user_data)
+        if added:
+            self._users_cache = None  # force reload before the next pre-fill
+        return added
+
+    def _add_user_sync(self, user_data: Dict[str, Any]) -> bool:
         try:
             service = self._get_service()
             if not service or not self.spreadsheet_id:
@@ -368,6 +421,9 @@ class RegistrationCog(commands.Cog):
         """
         Update an existing user in the registration spreadsheet.
 
+        Runs the blocking Sheets calls in a worker thread and invalidates
+        the user-list cache on success.
+
         Args:
             discord_id: Discord ID of the user to update
             user_data: Dictionary containing updated user data
@@ -375,6 +431,12 @@ class RegistrationCog(commands.Cog):
         Returns:
             True if successful, False otherwise
         """
+        updated = await asyncio.to_thread(self._update_user_sync, discord_id, user_data)
+        if updated:
+            self._users_cache = None  # force reload before the next pre-fill
+        return updated
+
+    def _update_user_sync(self, discord_id: int, user_data: Dict[str, Any]) -> bool:
         try:
             service = self._get_service()
             if not service or not self.spreadsheet_id:
@@ -561,7 +623,9 @@ class RegistrationCog(commands.Cog):
         """
         try:
             members = await self.read_users()
-            existing_user = await self.find_user(discord_id)
+            # Match against the freshly-read rows, not the cache, so the
+            # add-vs-update decision stays correct after concurrent edits.
+            existing_user = self._match_user(members, discord_id)
             other_members = [
                 m for m in members if str(m.get("DiscordID")) != str(f"{discord_id}")
             ]

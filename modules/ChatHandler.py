@@ -1,6 +1,8 @@
 # pyright: basic
+import asyncio
 import json
 import logging
+import random
 from typing import List, Optional, Tuple
 
 import discord
@@ -128,12 +130,32 @@ async def respond_in_chat(message, bot_user):
         return r
 
 
+# Canned status lines matching the LLM's prompt style; used when the LLM
+# is down or slow so commands never fail over their decorative message.
+_WORKING_FALLBACKS = [
+    "I'm working on it, relax.",
+    "Hold your horses, speed racer.",
+    "Patience, mortal.",
+    "Spinning up the thing you asked for.",
+    "Processing. Yes, this part takes effort.",
+    "One moment. I'm busy, but not that busy.",
+]
+
+
 async def working_on_it():
-    response = await chat_ollama_fast.ainvoke(
-        [
-            (
-                "user",
-                """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
+    """Return a short status message for in-progress commands.
+
+    Decorative only: if the LLM is unavailable, returns an empty result, or
+    takes longer than a small timeout, falls back to a canned message so the
+    calling command always proceeds.
+    """
+    try:
+        response = await asyncio.wait_for(
+            chat_ollama_fast.ainvoke(
+                [
+                    (
+                        "user",
+                        """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
 Rules:
 - Output exactly one message.
 - Be playful and sarcastic, slightly impatient, but not offensive.
@@ -144,11 +166,21 @@ Rules:
 
 Example styles: "I'm working on it, relax.", "Hold your horses, speed racer.", "Patience, mortal."
 """,
+                    ),
+                ]
             ),
-        ]
-    )
-    msg = response.content
-    return msg
+            timeout=5.0,
+        )
+        content = response.content
+        msg = content.strip() if isinstance(content, str) else ""
+        if msg:
+            return msg
+        logging.warning("LLM returned an empty status message; using fallback.")
+    except Exception as ex:
+        logging.warning(
+            f"LLM unavailable for status message ({ex!r}); using fallback."
+        )
+    return random.choice(_WORKING_FALLBACKS)
 
 
 @traceable

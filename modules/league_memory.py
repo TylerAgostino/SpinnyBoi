@@ -30,10 +30,10 @@ from strands import tool as strands_tool
 
 log = logging.getLogger(__name__)
 
-DEFAULT_OLLAMA_BASE_URL = "http://192.168.1.152:11080/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://192.168.1.152:11081/v1"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 PROVIDER_MODELS = {
-    "ollama": "nomic-embed-text",
+    "ollama": "nomic-ai/nomic-embed-text-v1.5-GGUF:Q4_K_M",
     "openai": "text-embedding-3-small",
 }
 
@@ -249,7 +249,7 @@ def make_embedder(config: VectorStoreConfig) -> Embedder:
     return OpenAICompatibleEmbedder(
         base_url=config.resolved_base_url,
         model=config.resolved_model,
-        api_key=api_key,
+        # api_key=api_key,
     )
 
 

@@ -1,4 +1,5 @@
 # pyright: basic
+import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional, Set
@@ -419,8 +420,8 @@ class AttendanceCog(commands.Cog):
                 f"sheet='{effective_sheet}', min_completion={min_completion_pct}%"
             )
 
-            finishers = self._fetch_race_finishers(
-                subsession_id, min_completion_pct / 100.0
+            finishers = await asyncio.to_thread(
+                self._fetch_race_finishers, subsession_id, min_completion_pct / 100.0
             )
 
             if not finishers:
@@ -432,7 +433,8 @@ class AttendanceCog(commands.Cog):
                 return
 
             # ── Step 2: update the Google Sheet ──────────────────────────────
-            stats = self._mark_attendance_in_sheet(
+            stats = await asyncio.to_thread(
+                self._mark_attendance_in_sheet,
                 sheet_name=effective_sheet,
                 iracing_id_column=iracing_id_column,
                 target_column=column,

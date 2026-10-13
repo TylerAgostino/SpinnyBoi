@@ -66,14 +66,15 @@ class WheelSpinner:
         self.colors_set = (self.colors_set + 1) % len(self.colors)
         return self.colors[self.colors_set]
 
-    def return_gif(self, driver=None):
+    def return_gif(self, driver=None, frame_count=90):
         logging.info("Generating gif")
         # create a directory with a unique name
         # generate a uuid for the directory name
         run_id = f"{os.getcwd()}/{str(uuid.uuid4())[0:8]}"
         os.makedirs(run_id)
+        own_driver = driver is None
         try:
-            if driver is None:
+            if own_driver:
                 from selenium import webdriver
 
                 logging.info("No browser provided, starting a new one")
@@ -92,18 +93,35 @@ class WheelSpinner:
                 "document.body.style.margin='0'; document.body.style.padding='0'; document.body.style.overflow='hidden';"
             )
 
+            # Drive the SMIL clock by hand. Real-time animation plus
+            # variable-latency screenshots means every frame lands on a
+            # different point of the timeline; pausing and seeking to fixed
+            # times makes frame i always show animation time i*step, no
+            # matter how long each capture takes or how the caller paces us.
+            duration = getattr(self.animation, "animation_duration", None) or 2
+            step = duration / frame_count
+            driver.execute_script(
+                "window.__svg = document.querySelector('svg');"
+                "window.__svg.pauseAnimations();"
+            )
+
             logging.info("Taking screenshots")
             frames = []
-            for i in range(90):
-                driver.get_screenshot_as_file(f"{run_id}/{i}.png")
-                f = Image.open(f"{run_id}/{i}.png")
-                f.info["duration"] = 0.1
+            for i in range(frame_count):
+                driver.execute_async_script(
+                    "var t = arguments[0], done = arguments[arguments.length - 1];"
+                    "var fin = (function (fired) { return function () {"
+                    "if (!fired) { fired = true; done(); };"
+                    "}; })(false);"
+                    "window.__svg.setCurrentTime(t);"
+                    "requestAnimationFrame(function () {"
+                    "requestAnimationFrame(function () { fin(); });;"
+                    "});"
+                    "setTimeout(fin, 100);",
+                    i * step,
+                )
+                f = Image.open(io.BytesIO(driver.get_screenshot_as_png()))
                 frames.append(f)
-
-            # logging.info('Cleaning up')
-            # # Close the browser
-            # driver.close()
-            # driver.quit()
 
             logging.info("Saving gif")
             fh = io.BytesIO()
@@ -112,12 +130,19 @@ class WheelSpinner:
                 format="GIF",
                 append_images=frames[1:],
                 save_all=True,
-                duration=50,
+                # one GIF frame per capture step so playback matches the
+                # animation's real duration
+                duration=int(1000 * step),
                 optimize=False,
                 loop=1,
             )
             fh.seek(0)
         finally:
+            if own_driver and driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    logging.exception("Failed to quit the self-created webdriver")
             shutil.rmtree(run_id)
         logging.info("Done generating gif")
         return fh
@@ -128,13 +153,14 @@ class WheelSpinner:
             font = "Comic Sans MS"
         else:
             font = "Avenir Next"
+        duration = 2  # Seconds
         d = draw.Drawing(
             200,
             200,
             origin="center",
             animation_config=draw.types.SyncedAnimationConfig(
                 # Animation configuration
-                duration=2,  # Seconds
+                duration=duration,
                 show_playback_progress=False,
                 show_playback_controls=False,
                 pause_on_load=False,
@@ -142,7 +168,9 @@ class WheelSpinner:
             ),
             font_family=font,
         )
-
+        # drawsvg consumes animation_config at build time; keep the duration
+        # where return_gif can pace frame captures against it.
+        d.animation_duration = duration
         d.append(draw.Rectangle(-150, -150, 300, 300, fill="#E7D5C5"))
 
         wheel = self.get_wheel()
@@ -528,12 +556,13 @@ class WheelSpinner:
 
         # Create drawing canvas
         width = sum(column_widths) * (base_font_size)
+        duration = 10  # Seconds - adjusted for better timing
         d = draw.Drawing(
             height=200,
             width=width,
             origin="center",
             animation_config=draw.types.SyncedAnimationConfig(
-                duration=10,  # Seconds - adjusted for better timing
+                duration=duration,
                 show_playback_progress=False,
                 show_playback_controls=False,
                 pause_on_load=False,
@@ -542,6 +571,9 @@ class WheelSpinner:
             ),
             font_family=font,
         )
+        # drawsvg consumes animation_config at build time; keep the duration
+        # where return_gif can pace frame captures against it.
+        d.animation_duration = duration
         # Add each item with its animation
         for i, option in enumerate(self.weighted_options):
             # Calculate timing for this item - make each item appear sequentially

@@ -10,6 +10,9 @@ same endpoints the site's own React tables call):
         rps        per-driver season aggregates (points, wins, inc, rating...)
         drivers    driver identity records
         schedules  race weeks (race_date epoch-seconds, per-race results)
+        teams      team aggregates keyed by team id
+        team_drivers        driver_id -> team_id (season-level team)
+        race_team_assignments  race_participant_id -> team_id (per-race team)
         tracks     track metadata keyed by config_id
         lss        "last scored schedule" pointer
 
@@ -149,6 +152,7 @@ def normalize_standings(
 ) -> List[Dict[str, Any]]:
     """Turn ``rps`` + ``drivers`` into compact standings rows sorted by position."""
     drivers_meta: Dict[str, Any] = payload.get("drivers") or {}
+    by_driver, _ = _team_lookups(payload)
     rows: List[Dict[str, Any]] = []
     for rp in (payload.get("rps") or {}).values():
         if not isinstance(rp, dict):
@@ -156,7 +160,11 @@ def normalize_standings(
         driver_id = str(rp.get("drid", ""))
         meta = drivers_meta.get(driver_id) or {}
         name = meta.get("name") or rp.get("name", "")
-        if not driver_matches(str(name), driver):
+        team = by_driver.get(driver_id)
+        if not (
+            driver_matches(str(name), driver)
+            or (team and driver_matches(str(team), driver))
+        ):
             continue
         starts = _to_number(rp.get("starts")) or 0
         inc = _to_number(rp.get("inc")) or 0
@@ -164,6 +172,7 @@ def normalize_standings(
             {
                 "driver_id": _to_number(driver_id),
                 "name": name,
+                "team": team,
                 "is_ai": bool(meta.get("is_ai", False)),
                 "points": _to_number(rp.get("tpts")),
                 "starts": starts,
@@ -202,6 +211,37 @@ def _sched_driver_entries(sched: Dict[str, Any]):
                     yield str(inner_id), inner
 
 
+def _team_lookups(payload: Dict[str, Any]):
+    """``(by_driver_id, by_participant)`` maps of id -> team name.
+
+    ``team_drivers`` gives the season-level team; ``race_team_assignments``
+    the per-race one (drivers can swap teams mid-season, so results prefer
+    the race-level mapping). Missing or dangling team ids map to no entry:
+    team is optional per driver.
+    """
+    teams: Dict[str, Any] = payload.get("teams") or {}
+
+    def name_of(team_id: Any) -> Optional[str]:
+        team = teams.get(str(team_id))
+        if isinstance(team, dict) and team.get("name"):
+            return str(team["name"])
+        return None
+
+    by_driver = {}
+    for driver_id, team_id in (payload.get("team_drivers") or {}).items():
+        team_name = name_of(team_id)
+        if team_name:
+            by_driver[str(driver_id)] = team_name
+    by_participant = {}
+    for participant_id, team_id in (
+        payload.get("race_team_assignments") or {}
+    ).items():
+        team_name = name_of(team_id)
+        if team_name:
+            by_participant[str(participant_id)] = team_name
+    return by_driver, by_participant
+
+
 def normalize_results(
     payload: Dict[str, Any],
     driver: str = "",
@@ -218,6 +258,7 @@ def normalize_results(
     """
     drivers_meta: Dict[str, Any] = payload.get("drivers") or {}
     tracks: Dict[str, Any] = payload.get("tracks") or {}
+    by_driver, by_participant = _team_lookups(payload)
     now = int(now_epoch if now_epoch is not None else time.time())
     cutoff = now - days * 86400 if days is not None else None
 
@@ -242,12 +283,20 @@ def normalize_results(
         for driver_id, entry in _sched_driver_entries(sched):
             meta = drivers_meta.get(driver_id) or {}
             name = meta.get("name", "")
-            if not driver_matches(str(name), driver):
+            team = (
+                by_participant.get(str(entry.get("race_participant_id", "")))
+                or by_driver.get(driver_id)
+            )
+            if not (
+                driver_matches(str(name), driver)
+                or (team and driver_matches(str(team), driver))
+            ):
                 continue
             results.append(
                 {
                     "driver_id": _to_number(driver_id),
                     "name": name,
+                    "team": team,
                     "race_date": race_date,
                     "track": track_name,
                     "finish_pos": _to_number(entry.get("finish_pos")),
@@ -412,10 +461,11 @@ class SimRacerHubClient:
             """Look up the league's racing results and driver stats on SimRacerHub.
 
             ``kind`` is "standings" (season points table: points, wins, top-5s,
-            incidents, safety rating per driver) or "results" (recent individual
-            race finishes: start/finish position, points, incidents, rating).
-            ``driver`` optionally filters to one driver by name (substring,
-            e.g. "Tucker"). ``days`` limits "results" to the last N days
+            incidents, safety rating, team per driver) or "results" (recent
+            individual race finishes: start/finish position, points, incidents,
+            rating, team). ``driver`` optionally filters by driver name OR team
+            name (substring, e.g. "Tucker" or "Snack Attack"). ``days`` limits
+            "results" to the last N days
             (default 14). ``season_id`` selects a season when there are
             several; omit it to use the league default. Returns compact rows,
             or a status like "no_data" when nothing was uploaded yet.

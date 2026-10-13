@@ -37,9 +37,14 @@ class LiveSimRacerHubTests(unittest.TestCase):
         for row in rows:
             self.assertTrue(row["name"])
             self.assertIsInstance(row["points"], (int, float))
+            self.assertIsInstance(row["rating"], (int, float))
         self.assertFalse(
             any(row["is_ai"] for row in rows),
-            "AI drivers leaked into standings rows",
+            "default standings should exclude AI entries",
+        )
+        self.assertTrue(
+            any(row["team"] for row in rows),
+            "league uses teams but no standings row carries one",
         )
 
     def test_results_recent_season_races(self):
@@ -54,6 +59,10 @@ class LiveSimRacerHubTests(unittest.TestCase):
             self.assertTrue(row["name"], "result row lost its driver name")
             self.assertIsNotNone(row["finish_pos"])
             self.assertTrue(row["track"], "result row lost its track name")
+        self.assertTrue(
+            any(row["team"] for row in rows),
+            "league uses teams but no result row carries one",
+        )
 
     def test_resolve_driver(self):
         out = self.client.resolve_driver("Austin Tucker")

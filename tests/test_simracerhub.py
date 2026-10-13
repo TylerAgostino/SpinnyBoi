@@ -56,6 +56,14 @@ SAMPLE_PAYLOAD = {
         "17": {"track_name": "Homestead Miami Speedway", "name": "Homestead Miami Speedway Road Course B", "config_name": "Road Course B"},
         "55": {"track_name": "Virginia International Raceway", "name": " VIR Full Course", "config_name": "Full Course"},
     },
+    "teams": {
+        "901": {"name": "Test Squad"},
+        "902": {"name": "Merc Squad"},
+    },
+    # season-level teams; 16262 points at a team id that does not exist
+    "team_drivers": {"48019": "901", "16262": "no-such-team"},
+    # per-race assignment overrides the season-level team
+    "race_team_assignments": {"P-2": "902"},
     "schedules": [
         {
             "schedule_id": "367869", "season_id": "29913", "race_date": str(NOW - 120 * DAY),
@@ -68,8 +76,8 @@ SAMPLE_PAYLOAD = {
             "schedule_id": "375051", "season_id": "29913", "race_date": str(NOW - 7 * DAY),
             "config_id": "17", "chase": "N",
             "drivers": {
-                "48019": {"driver_id": "48019", "race_id": "378500", "qualify_pos": "11", "num_laps": "7", "laps_led": "2", "finish_pos": "1", "race_points": "56", "incidents": "38", "status": "Running", "rating": "128.722"},
-                "16262": {"driver_id": "16262", "race_id": "378500", "qualify_pos": "1", "num_laps": "7", "laps_led": "0", "finish_pos": "4", "race_points": "33", "incidents": "14", "status": "Running", "rating": "99"},
+                "48019": {"driver_id": "48019", "race_id": "378500", "race_participant_id": "P-1", "qualify_pos": "11", "num_laps": "7", "laps_led": "2", "finish_pos": "1", "race_points": "56", "incidents": "38", "status": "Running", "rating": "128.722"},
+                "16262": {"driver_id": "16262", "race_id": "378500", "race_participant_id": "P-2", "qualify_pos": "1", "num_laps": "7", "laps_led": "0", "finish_pos": "4", "race_points": "33", "incidents": "14", "status": "Running", "rating": "99"},
             },
         },
         {
@@ -88,6 +96,8 @@ NESTED_PAYLOAD = {
         "16262": {"driver_id": "16262", "name": "Jordan Babcock", "is_ai": False},
     },
     "tracks": {"55": {"track_name": "Daytona Road Course", "name": "Daytona"}},
+    "teams": {"901": {"name": "Test Squad"}},
+    "team_drivers": {"16262": "901"},
     "schedules": [
         {
             "schedule_id": "367869",
@@ -115,10 +125,43 @@ class NestedScheduleParsingTests(unittest.TestCase):
             self.assertEqual(row["track"], "Daytona Road Course")
             self.assertIsNotNone(row["finish_pos"])
             self.assertIsNotNone(row["race_points"])
+        self.assertEqual(
+            {r["name"]: r["team"] for r in rows},
+            {"Austin Tucker2": None, "Jordan Babcock": "Test Squad"},
+        )
 
     def test_driver_filter_works_on_nested_shape(self):
         rows = normalize_results(NESTED_PAYLOAD, driver="babcock", now_epoch=NOW)
         self.assertEqual([r["name"] for r in rows], ["Jordan Babcock"])
+
+
+class TeamAwarenessTests(unittest.TestCase):
+    def test_standings_rows_carry_season_team(self):
+        rows = {r["name"]: r for r in normalize_standings(SAMPLE_PAYLOAD)}
+        self.assertEqual(rows["Austin Tucker2"]["team"], "Test Squad")
+        # dangling team id drops the team rather than inventing one
+        self.assertIsNone(rows["Jordan Babcock"]["team"])
+        self.assertIsNone(rows["Robot Racer"]["team"])
+
+    def test_standings_filter_matches_team_name(self):
+        rows = normalize_standings(SAMPLE_PAYLOAD, driver="test squad")
+        self.assertEqual([r["name"] for r in rows], ["Austin Tucker2"])
+
+    def test_results_prefer_per_race_team_assignment(self):
+        rows = normalize_results(SAMPLE_PAYLOAD, now_epoch=NOW)
+        babcock = [r for r in rows if r["name"] == "Jordan Babcock"]
+        self.assertEqual(len(babcock), 1)
+        self.assertEqual(babcock[0]["team"], "Merc Squad")  # via P-2
+        tucker = [r for r in rows if r["name"] == "Austin Tucker2"]
+        self.assertTrue(tucker)
+        self.assertTrue(
+            all(r["team"] == "Test Squad" for r in tucker),
+            "P-1 has no assignment; season-level team must be used",
+        )
+
+    def test_results_filter_matches_team_name(self):
+        rows = normalize_results(SAMPLE_PAYLOAD, driver="Merc Squad", now_epoch=NOW)
+        self.assertEqual({r["name"] for r in rows}, {"Jordan Babcock"})
 
 
 def make_client(fetch=None, config=None, clock_values=None):

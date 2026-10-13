@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import threading
 import uuid
 from functools import wraps
 from typing import Optional
@@ -36,6 +37,16 @@ async def get_preset_tabs(ctx):
 
 class NoTabError(Exception):
     pass
+
+
+def _quit_driver(driver):
+    """Quit a webdriver, swallowing and logging failures. Runs on the quit
+    thread, so nothing may let an exception escape here."""
+    try:
+        driver.quit()
+    except Exception:
+        logging.exception("Failed to quit webdriver cleanly")
+
 
 
 def wheel_command(needs_driver=True, is_interaction=True):
@@ -132,9 +143,15 @@ def wheel_command(needs_driver=True, is_interaction=True):
                             files=response_attachment,
                         )
             finally:
-                # Clean up the driver off the event loop as well
+                # Clean the driver down on a plain non-daemon thread. If this
+                # command task was cancelled (bot shutdown, cancelled
+                # interaction), an awaited quit is cancelled right back before
+                # it runs and Firefox is left hanging; a bare thread runs the
+                # quit to completion no matter what happens to this task.
                 if driver:
-                    await asyncio.to_thread(driver.quit)
+                    threading.Thread(
+                        target=_quit_driver, args=(driver,), name="webdriver-quit"
+                    ).start()
 
         return wrapper
 

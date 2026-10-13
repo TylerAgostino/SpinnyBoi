@@ -1,127 +1,122 @@
+# pyright: basic
+"""Scheduler: persists scheduled events and executes them when due.
+
+One instance owns one SQLite database (path resolved at construction,
+never at import — importing this module has no side effects). Executors
+register handlers by function name; `run_due()` dispatches every due,
+uncompleted event to its handler and marks it completed on success. A
+handler that raises leaves its event pending so it retries on the next
+tick; an unregistered function is logged and completed so one bad row
+can't poison the loop.
+
+Cancel is distinct from completed: a canceled event is never executed
+but stays distinguishable in the table (`cancelled = 1`, `completed = 0`).
+"""
+from __future__ import annotations
+
+import datetime
+import logging
 import os
 import sqlite3
-import logging
-import datetime
 from dataclasses import dataclass
-from typing import List, Optional, Callable, Any
+from typing import Awaitable, Callable, Dict, List, Optional
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-    datefmt="%m/%d/%Y %I:%M:%S %p",
-)
 logger = logging.getLogger(__name__)
 
-# Get the database URL from environment variables
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/spinny.db")
-# Handle both sqlite:/// and sqlite:// formats
-if DATABASE_URL.startswith("sqlite:///"):
-    DB_PATH = DATABASE_URL.replace("sqlite:///", "")
-elif DATABASE_URL.startswith("sqlite://"):
-    DB_PATH = DATABASE_URL.replace("sqlite://", "")
-else:
-    DB_PATH = DATABASE_URL
-logger.info(f"Using database path: {DB_PATH}")
+Handler = Callable[["ScheduledEvent"], Awaitable[None]]
 
 
 @dataclass
 class ScheduledEvent:
-    """Class representing a scheduled event in the database."""
+    """One event row: when to run, what to run, and the payload."""
 
     id: Optional[int]
-    timestamp: float  # Unix timestamp when the event should execute
-    function_name: str  # Name of the function to execute
-    message_id: int  # Discord message ID to operate on
-    channel_id: int  # Discord channel ID where the message is
-    completed: bool  # Whether the event has been executed
-    data: Optional[str]  # Additional data needed for the function (JSON string)
+    timestamp: float
+    function_name: str
+    message_id: int
+    channel_id: int
+    completed: bool = False
+    data: Optional[str] = None  # JSON string, opaque to the scheduler
+    cancelled: bool = False
 
 
-def init_db() -> None:
-    """Initialize the database with the scheduled_events table."""
-    try:
-        # Extract the directory path
-        db_dir = os.path.dirname(DB_PATH)
+class Scheduler:
+    """Event store + executor over one SQLite file. Sync storage, async
+    execution through registered handlers."""
 
-        # Create the directory if it doesn't exist
+    def __init__(self, db_path: Optional[str] = None):
+        if db_path is None:
+            db_path = _db_path_from_env()
+        self.db_path = db_path
+        self._handlers: Dict[str, Handler] = {}
+        self._ensure_schema()
+
+    @classmethod
+    def from_env(cls) -> "Scheduler":
+        return cls()
+
+    def register_handler(self, function_name: str, handler: Handler) -> None:
+        """Bind an async handler to an event's function_name."""
+        self._handlers[function_name] = handler
+
+    # --- storage ---------------------------------------------------------
+
+    def _connect(self) -> sqlite3.Connection:
+        db_dir = os.path.dirname(self.db_path)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
-            logger.info(f"Created database directory: {db_dir}")
+        return sqlite3.connect(self.db_path)
 
-        # Connect to the database
-        conn = sqlite3.connect(DB_PATH)
+    def _ensure_schema(self) -> None:
+        try:
+            conn = self._connect()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+            CREATE TABLE IF NOT EXISTS scheduled_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp REAL NOT NULL,
+                function_name TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                completed BOOLEAN NOT NULL DEFAULT 0,
+                data TEXT,
+                cancelled BOOLEAN NOT NULL DEFAULT 0
+            )
+            """
+            )
+            cursor.execute(
+                """
+            CREATE INDEX IF NOT EXISTS idx_scheduled_events_timestamp
+            ON scheduled_events (timestamp)
+            """
+            )
+            # Pre-existing databases lack the cancelled column.
+            cursor.execute("PRAGMA table_info(scheduled_events)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "cancelled" not in columns:
+                cursor.execute(
+                    "ALTER TABLE scheduled_events "
+                    "ADD COLUMN cancelled BOOLEAN NOT NULL DEFAULT 0"
+                )
+            conn.commit()
+            conn.close()
+            logger.info(f"Scheduler database ready: {self.db_path}")
+        except Exception as e:
+            logger.error(f"Error initializing database: {str(e)}")
+            raise
+
+    def schedule(
+        self,
+        timestamp: float,
+        function_name: str,
+        message_id: int,
+        channel_id: int,
+        data: Optional[str] = None,
+    ) -> int:
+        """Schedule an event; returns its id."""
+        conn = self._connect()
         cursor = conn.cursor()
-
-        # Create the scheduled_events table if it doesn't exist
-        cursor.execute(
-            """
-        CREATE TABLE IF NOT EXISTS scheduled_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp REAL NOT NULL,
-            function_name TEXT NOT NULL,
-            message_id INTEGER NOT NULL,
-            channel_id INTEGER NOT NULL,
-            completed BOOLEAN NOT NULL DEFAULT 0,
-            data TEXT
-        )
-        """
-        )
-
-        # Create an index on the timestamp for efficient querying
-        cursor.execute(
-            """
-        CREATE INDEX IF NOT EXISTS idx_scheduled_events_timestamp
-        ON scheduled_events (timestamp)
-        """
-        )
-
-        # Create an index on the completed status for efficient querying
-        cursor.execute(
-            """
-        CREATE INDEX IF NOT EXISTS idx_scheduled_events_completed
-        ON scheduled_events (completed)
-        """
-        )
-
-        conn.commit()
-        conn.close()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing database: {str(e)}")
-        raise
-
-
-def schedule_event(
-    timestamp: float,
-    function_name: str,
-    message_id: int,
-    channel_id: int,
-    data: Optional[str] = None,
-) -> int:
-    """
-    Schedule a new event to be executed at the specified timestamp.
-
-    Args:
-        timestamp: Unix timestamp when the event should execute
-        function_name: Name of the function to execute
-        message_id: Discord message ID to operate on
-        channel_id: Discord channel ID where the message is
-        data: Additional data needed for the function (JSON string)
-
-    Returns:
-        The ID of the newly created event
-    """
-    try:
-        # Ensure database directory exists
-        db_dir = os.path.dirname(DB_PATH)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
-            logger.info(f"Created database directory: {db_dir}")
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
         cursor.execute(
             """
         INSERT INTO scheduled_events (timestamp, function_name, message_id, channel_id, completed, data)
@@ -129,208 +124,127 @@ def schedule_event(
         """,
             (timestamp, function_name, message_id, channel_id, data),
         )
-
         event_id = cursor.lastrowid
         conn.commit()
         conn.close()
-
         logger.info(
             f"Event scheduled: {function_name} on message {message_id} at {datetime.datetime.fromtimestamp(timestamp).isoformat()}"
         )
-        return event_id
-    except Exception as e:
-        logger.error(f"Error scheduling event: {str(e)}")
-        raise
+        return int(event_id)
 
-
-def get_pending_events() -> List[ScheduledEvent]:
-    """
-    Get all events that are scheduled to execute in the past and haven't been completed yet.
-
-    Returns:
-        A list of ScheduledEvent objects
-    """
-    try:
-        # Ensure database exists before querying
-        if not os.path.exists(DB_PATH):
-            logger.warning(f"Database file does not exist: {DB_PATH}")
-            return []
-
-        conn = sqlite3.connect(DB_PATH)
+    def _rows(self, where: str, params: tuple = ()) -> List[ScheduledEvent]:
+        conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-
-        current_timestamp = datetime.datetime.now().timestamp()
-        cursor.execute(
-            """
-        SELECT id, timestamp, function_name, message_id, channel_id, completed, data
-        FROM scheduled_events
-        WHERE timestamp <= ? AND completed = 0
-        ORDER BY timestamp ASC
-        """,
-            (current_timestamp,),
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        events = [
-            ScheduledEvent(
-                id=row["id"],
-                timestamp=row["timestamp"],
-                function_name=row["function_name"],
-                message_id=row["message_id"],
-                channel_id=row["channel_id"],
-                completed=bool(row["completed"]),
-                data=row["data"],
+        try:
+            cursor.execute(
+                f"""
+            SELECT id, timestamp, function_name, message_id, channel_id, completed, data, cancelled
+            FROM scheduled_events
+            WHERE {where}
+            ORDER BY timestamp ASC
+            """,
+                params,
             )
-            for row in rows
-        ]
-
-        return events
-    except Exception as e:
-        logger.error(f"Error getting pending events: {str(e)}")
-        return []
-
-
-def mark_event_completed(event_id: int) -> bool:
-    """
-    Mark an event as completed.
-
-    Args:
-        event_id: The ID of the event to mark as completed
-
-    Returns:
-        True if the event was marked as completed, False otherwise
-    """
-    try:
-        # Ensure database exists before updating
-        if not os.path.exists(DB_PATH):
-            logger.warning(f"Database file does not exist: {DB_PATH}")
-            return False
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-        UPDATE scheduled_events
-        SET completed = 1
-        WHERE id = ?
-        """,
-            (event_id,),
-        )
-
-        conn.commit()
-        conn.close()
-
-        logger.info(f"Event {event_id} marked as completed")
-        return True
-    except Exception as e:
-        logger.error(f"Error marking event as completed: {str(e)}")
-        return False
-
-
-def get_all_scheduled_events() -> List[ScheduledEvent]:
-    """
-    Get all scheduled events that haven't been completed yet.
-
-    Returns:
-        A list of ScheduledEvent objects
-    """
-    try:
-        # Ensure database exists before querying
-        if not os.path.exists(DB_PATH):
-            logger.warning(f"Database file does not exist: {DB_PATH}")
-            return []
-
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-        SELECT id, timestamp, function_name, message_id, channel_id, completed, data
-        FROM scheduled_events
-        WHERE completed = 0
-        ORDER BY timestamp ASC
-        """
-        )
-
-        rows = cursor.fetchall()
-        conn.close()
-
-        events = [
-            ScheduledEvent(
-                id=row["id"],
-                timestamp=row["timestamp"],
-                function_name=row["function_name"],
-                message_id=row["message_id"],
-                channel_id=row["channel_id"],
-                completed=bool(row["completed"]),
-                data=row["data"],
-            )
-            for row in rows
-        ]
-
-        return events
-    except Exception as e:
-        logger.error(f"Error getting scheduled events: {str(e)}")
-        return []
-
-
-def cancel_event(event_id: int) -> bool:
-    """
-    Cancel a scheduled event by marking it as completed.
-
-    Args:
-        event_id: The ID of the event to cancel
-
-    Returns:
-        True if the event was canceled successfully, False otherwise
-    """
-    try:
-        # Ensure database exists before updating
-        if not os.path.exists(DB_PATH):
-            logger.warning(f"Database file does not exist: {DB_PATH}")
-            return False
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Check if the event exists and is not completed
-        cursor.execute(
-            """
-        SELECT id FROM scheduled_events
-        WHERE id = ? AND completed = 0
-        """,
-            (event_id,),
-        )
-
-        if not cursor.fetchone():
-            logger.warning(f"Event {event_id} not found or already completed")
+        except sqlite3.Error:
+            # A missing database file simply means nothing has been stored.
             conn.close()
-            return False
+            return []
+        events = [_to_event(row) for row in cursor.fetchall()]
+        conn.close()
+        return events
 
-        # Mark the event as completed (effectively canceling it)
-        cursor.execute(
-            """
-        UPDATE scheduled_events
-        SET completed = 1
-        WHERE id = ?
-        """,
-            (event_id,),
+    def pending(self, now: Optional[float] = None) -> List[ScheduledEvent]:
+        """Due, not completed, not canceled, oldest first."""
+        if now is None:
+            now = datetime.datetime.now().timestamp()
+        return self._rows(
+            "timestamp <= ? AND completed = 0 AND cancelled = 0", (now,)
         )
 
+    def all_active(self) -> List[ScheduledEvent]:
+        """Everything not completed and not canceled, oldest first."""
+        return self._rows("completed = 0 AND cancelled = 0")
+
+    def mark_completed(self, event_id: int) -> bool:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE scheduled_events SET completed = 1 WHERE id = ?", (event_id,)
+        )
+        changed = cursor.rowcount > 0
         conn.commit()
         conn.close()
+        if not changed:
+            logger.warning(f"Event {event_id} not found when marking completed")
+        return changed
 
-        logger.info(f"Event {event_id} canceled successfully")
-        return True
-    except Exception as e:
-        logger.error(f"Error canceling event: {str(e)}")
-        return False
+    def cancel(self, event_id: int) -> bool:
+        """Cancel a pending event. Completed events cannot be canceled."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE scheduled_events SET cancelled = 1 "
+            "WHERE id = ? AND completed = 0 AND cancelled = 0",
+            (event_id,),
+        )
+        changed = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        if not changed:
+            logger.warning(f"Event {event_id} not cancellable")
+        return changed
+
+    # --- execution --------------------------------------------------------
+
+    async def run_due(self) -> int:
+        """Dispatch every due event to its registered handler.
+
+        Returns the number executed. Success marks the event completed; a
+        handler exception leaves it pending for the next tick; an
+        unregistered function is completed (a poison pill must not loop).
+        """
+        executed = 0
+        for event in self.pending():
+            handler = self._handlers.get(event.function_name)
+            if handler is None:
+                logger.error(
+                    f"No handler for scheduled event {event.id} "
+                    f"({event.function_name}); completing it"
+                )
+                self.mark_completed(event.id)  # type: ignore[arg-type]
+                continue
+            try:
+                logger.info(
+                    f"Processing scheduled event {event.id}: {event.function_name}"
+                )
+                await handler(event)
+            except Exception as e:
+                logger.error(f"Error executing scheduled event {event.id}: {str(e)}")
+                continue
+            self.mark_completed(event.id)  # type: ignore[arg-type]
+            executed += 1
+        return executed
 
 
-# Initialize the scheduler database
-init_db()
+def _to_event(row: sqlite3.Row) -> ScheduledEvent:
+    return ScheduledEvent(
+        id=row["id"],
+        timestamp=row["timestamp"],
+        function_name=row["function_name"],
+        message_id=row["message_id"],
+        channel_id=row["channel_id"],
+        completed=bool(row["completed"]),
+        data=row["data"],
+        cancelled=bool(row["cancelled"]),
+    )
+
+
+def _db_path_from_env() -> str:
+    """Resolve the SQLite path from DATABASE_URL (sqlite:///path or path)."""
+    url = os.getenv("DATABASE_URL", "sqlite:///data/spinny.db")
+    if url.startswith("sqlite:///"):
+        return url.replace("sqlite:///", "")
+    if url.startswith("sqlite://"):
+        return url.replace("sqlite://", "")
+    return url

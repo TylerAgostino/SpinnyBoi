@@ -9,12 +9,24 @@ import uuid
 
 import drawsvg as draw
 from PIL import Image
+from typing import Any, NamedTuple, Optional
+
+
+class SpinResult(NamedTuple):
+    """The explicit outcome of a spinner's decided spin."""
+
+    winner: str
+    response: str
+    next_spin: Optional[Any]
 
 
 class WheelSpinner:
-    def __init__(self, options):
+    def __init__(self, options, rng=None):
+        # rng seam: pass any random.Random-like object for deterministic spins.
+        self._rng = random if rng is None else rng
+        self.winner = None
         self.colors = ["#011C39", "#C44E4F", "#143C5D", "#FFBB55"]
-        self.colors_set = random.randint(0, len(self.colors) - 1)
+        self.colors_set = self._rng.randint(0, len(self.colors) - 1)
 
         self.weighted_options = options
         self.repeated_options = []
@@ -112,7 +124,7 @@ class WheelSpinner:
 
     def generate_animation(self):
         # 1 in 30 chance of comic sans
-        if random.randint(0, 30) == 0:
+        if self._rng.randint(0, 30) == 0:
             font = "Comic Sans MS"
         else:
             font = "Avenir Next"
@@ -134,7 +146,7 @@ class WheelSpinner:
         d.append(draw.Rectangle(-150, -150, 300, 300, fill="#E7D5C5"))
 
         wheel = self.get_wheel()
-        start_pos = random.randint(360, 400)
+        start_pos = self._rng.randint(360, 400)
         end_pos = (
             self.weighted_options[0].weight
             / sum([option.weight for option in self.weighted_options])
@@ -435,14 +447,24 @@ class WheelSpinner:
         #      .888%%%%%%%%%%%%%%%%%%%%888.
         #     888%%JGS%%%%%%%%%%%%%%%%%%%888
 
-        random.shuffle(self.repeated_options)
+        self._rng.shuffle(self.repeated_options)
+        self.winner = self.repeated_options[0]
         for i in range(len(self.weighted_options)):
-            if self.weighted_options[i] == self.repeated_options[0]:
+            if self.weighted_options[i] == self.winner:
                 self.weighted_options.insert(0, self.weighted_options.pop(i))
                 return
 
+    @property
+    def result(self) -> SpinResult:
+        """Read the decided outcome without digging through wheel internals."""
+        return SpinResult(
+            winner=self.winner.option if self.winner else "",
+            response=self.response,
+            next_spin=self.next_spin,
+        )
+
     @staticmethod
-    def create_spindex(options):
+    def create_spindex(options, rng=None):
         """Creates a WheelSpinner instance configured for spindex animation instead of wheel spin.
 
         Args:
@@ -461,7 +483,7 @@ class WheelSpinner:
         option_objects = [SimpleOption(opt) for opt in options]
 
         # Create and configure the spinner
-        spinner = WheelSpinner(option_objects)
+        spinner = WheelSpinner(option_objects, rng=rng)
         # Replace the wheel animation with the spindex animation
         spinner.animation = spinner.generate_spindex_animation()
         return spinner

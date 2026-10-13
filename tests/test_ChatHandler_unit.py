@@ -61,7 +61,7 @@ def make_bot_user(history_messages):
                 return self.items.pop(0)
             raise StopAsyncIteration
 
-    channel.history = MagicMock(return_value=HistIter(list(history_messages)))
+    channel.history = MagicMock(side_effect=lambda **kw: HistIter(list(history_messages)))
     bot = MagicMock()
     bot.fetch_channel = AsyncMock(return_value=channel)
     return bot
@@ -100,10 +100,11 @@ class ParseChatReplyTests(unittest.TestCase):
         self.assertIsNone(content)
         self.assertIsInstance(msg, str)
 
-    def test_missing_content_key_raises(self):
-        # Preserves the old behavior: parseable JSON without "content" raises.
-        with self.assertRaises(KeyError):
-            ChatHandler._parse_chat_reply('{"user": "SpinnyBoi"}')
+    def test_missing_content_key_is_parse_failure(self):
+        # The seam owns the failure: no KeyError escapes, content is None.
+        msg, content = ChatHandler._parse_chat_reply('{"user": "SpinnyBoi"}')
+        self.assertIsNone(content)
+        self.assertIsInstance(msg, str)
 
 
 class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
@@ -205,6 +206,26 @@ class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, "second try works")
         self.assertEqual(agent.invoke_async.await_count, 2)
 
+    async def test_history_fetched_once(self):
+        trigger = make_discord_message("hey")
+        bot = make_bot_user([make_discord_message("earlier")])
+        agent = fake_agent(['{"content": "yo"}'])
+        with patch.object(ChatHandler, "_make_agent", return_value=agent), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            await ChatHandler.respond_in_chat(trigger, bot)
+        channel = bot.fetch_channel.return_value
+        self.assertEqual(bot.fetch_channel.await_count, 1)
+        self.assertEqual(channel.history.call_count, 1)
+
+    async def test_model_injected_into_agent(self):
+        trigger = make_discord_message("hey")
+        bot = make_bot_user([])
+        agent = fake_agent(['{"content": "yo"}'])
+        marker = object()
+        with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent:
+            await ChatHandler.respond_in_chat(trigger, bot, model=marker)
+        self.assertIs(make_agent.call_args.args[0], marker)
+
 
 class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_text(self):
@@ -229,6 +250,14 @@ class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
             out = await ChatHandler.working_on_it()
         self.assertEqual(out, "Hold your horses.")
 
+    async def test_model_injected(self):
+        agent = fake_agent(["go go go"])
+        marker = object()
+        with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent:
+            out = await ChatHandler.working_on_it(model=marker)
+        self.assertEqual(out, "go go go")
+        self.assertIs(make_agent.call_args.args[0], marker)
+
 
 class ExtractTextTests(unittest.TestCase):
     def test_plain_string(self):
@@ -242,46 +271,6 @@ class ExtractTextTests(unittest.TestCase):
         r = FakeAgentResult("final")
         r.message["content"].insert(0, {"reasoningContent": {}})
         self.assertEqual(ChatHandler._extract_text(r), "final")
-
-
-class SummarizeThreadTests(unittest.IsolatedAsyncioTestCase):
-    def _thread(self, messages):
-        class HistIter:
-            def __init__(self, items):
-                self.items = items
-
-            def __aiter__(self):
-                return self
-
-            async def __anext__(self):
-                if self.items:
-                    return self.items.pop(0)
-                raise StopAsyncIteration
-
-        thread = MagicMock()
-        thread.history = MagicMock(return_value=HistIter(list(messages)))
-        return thread
-
-    async def test_empty_history(self):
-        thread = self._thread([])
-        out = await ChatHandler.summarize_thread(thread, "incident at T1")
-        self.assertEqual(out, "No messages found in the thread to summarize.")
-
-    async def test_success_returns_text(self):
-        msg = make_discord_message("he spun me out")
-        msg.author.bot = False
-        thread = self._thread([msg])
-        agent = fake_agent(["Drivers: A\nDecision: none"])
-        with patch.object(ChatHandler, "_make_agent", return_value=agent):
-            out = await ChatHandler.summarize_thread(thread, "incident at T1")
-        self.assertIn("Decision", out)
-        self.assertEqual(agent.invoke_async.await_count, 1)
-
-    async def test_never_raises(self):
-        thread = self._thread([])
-        thread.history = MagicMock(side_effect=RuntimeError("boom"))
-        out = await ChatHandler.summarize_thread(thread, "incident")
-        self.assertTrue(out.startswith("Failed to summarize thread:"))
 
 
 if __name__ == "__main__":

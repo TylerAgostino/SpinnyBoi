@@ -1,29 +1,17 @@
 # pyright: basic
 import asyncio
-import json
 import logging
 import os
-import re
 import time
 from typing import Any, Dict, List, Optional
 
 import discord
 from discord.ext import commands
 
-from .api import iRacingAPIHandler
-
-# Google API imports - install these with pip
-try:
-    from google.oauth2.service_account import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.errors import HttpError
-
-    GOOGLE_APIS_AVAILABLE = True
-except ImportError:
-    logging.error(
-        "Google API libraries not installed. Registration features will be limited."
-    )
-    GOOGLE_APIS_AVAILABLE = False
+from .api import iRacingAPIHandler, iracing_handler_from_env
+from .league_config import LeagueConfig
+from .registration_roster import RegistrationRoster, match_user, registration_status
+from .sheets_client import SheetsClient, SheetsError
 
 
 # How long the cached registration user list is considered fresh. Stale
@@ -35,12 +23,18 @@ class RegistrationCog(commands.Cog):
     This cog handles user onboarding and stores information in a Google Sheet.
     """
 
-    def __init__(self, bot, sheet_name: str = "Registration", role_id: int = None):
+    def __init__(
+        self, bot, config: LeagueConfig, sheets: Optional[SheetsClient] = None
+    ):
         self.bot = bot
-        self.credentials = None
-        self.spreadsheet_id = os.getenv("REGISTRATION_SHEET_ID")
-        self.users_sheet_name = sheet_name
-        self.driver_role_id = role_id
+        self.config = config
+        self.driver_role_id = config.driver_role_id
+        self.sheets = sheets or SheetsClient.from_env()
+        self.roster = RegistrationRoster(
+            self.sheets,
+            os.getenv("REGISTRATION_SHEET_ID"),
+            config.registration_sheet_name,
+        )
         self._iracing_api: Optional[iRacingAPIHandler] = None
         # Cached user list so /register can answer with its modal within
         # Discord's 3-second interaction window instead of waiting on the
@@ -48,8 +42,6 @@ class RegistrationCog(commands.Cog):
         self._users_cache: Optional[List[Dict[str, Any]]] = None
         self._users_cache_ts: float = 0.0
         self._users_refreshing: bool = False
-        # Init Google Sheets API
-        self._init_google_sheets()
 
     async def cog_load(self) -> None:
         # Warm the user cache off any interaction deadline so the first
@@ -186,56 +178,6 @@ class RegistrationCog(commands.Cog):
                 ephemeral=True,
             )
 
-    def _init_google_sheets(self) -> None:
-        """
-        Initialize Google Sheets API credentials.
-        Loads credentials from service account file or environment variable.
-        """
-        if not GOOGLE_APIS_AVAILABLE:
-            logging.warning(
-                "Google APIs not available. Please install required packages."
-            )
-            return
-
-        try:
-            # Try to load credentials from a file first
-            creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-            if os.path.exists(creds_file):
-                self.credentials = Credentials.from_service_account_file(
-                    creds_file, scopes=["https://www.googleapis.com/auth/spreadsheets"]
-                )
-                logging.info("Google Sheets credentials loaded from file")
-            # If no file, try to load from environment variable
-            elif os.getenv("GOOGLE_CREDENTIALS_JSON"):
-                creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
-                if creds_json_str:
-                    creds_json = json.loads(creds_json_str)
-                    self.credentials = Credentials.from_service_account_info(
-                        creds_json,
-                        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-                    )
-                    logging.info("Google Sheets credentials loaded from environment")
-            else:
-                logging.error("No Google Sheets credentials found")
-        except Exception as ex:
-            logging.error(f"Error initializing Google Sheets API: {str(ex)}")
-
-    def _get_service(self):
-        """
-        Get Google Sheets API service instance.
-
-        Returns:
-            Google Sheets API service or None if credentials are not available
-        """
-        if not self.credentials:
-            logging.error("No Google credentials available")
-            return None
-
-        try:
-            return build("sheets", "v4", credentials=self.credentials)
-        except Exception as ex:
-            logging.error(f"Error building Google Sheets service: {str(ex)}")
-            return None
 
     async def read_users(self) -> List[Dict[str, Any]]:
         """
@@ -248,65 +190,11 @@ class RegistrationCog(commands.Cog):
         Returns:
             List of user dictionaries with their registration data
         """
-        users = await asyncio.to_thread(self._read_users_sync)
+        users = await asyncio.to_thread(self.roster.read_users)
         self._users_cache = users
         self._users_cache_ts = time.monotonic()
         return users
 
-    def _read_users_sync(self) -> List[Dict[str, Any]]:
-        try:
-            service = self._get_service()
-            if not service or not self.spreadsheet_id:
-                return []
-
-            # Get the first row to determine column headers
-            range_name = f"{self.users_sheet_name}!A1:Z1"
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-                .execute()
-            )
-
-            if "values" not in result or not result["values"]:
-                logging.warning("No header row found in spreadsheet")
-                return []
-
-            headers = result["values"][0]
-
-            # Get all data rows
-            range_name = f"{self.users_sheet_name}!A2:Z"
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-                .execute()
-            )
-
-            if "values" not in result:
-                return []
-
-            # Convert rows to dictionaries using headers
-            users = []
-            for row in result["values"]:
-                user_data = {}
-                # Pad row if needed to match header length
-                padded_row = row + [""] * (len(headers) - len(row))
-                for i, header in enumerate(headers):
-                    if i < len(padded_row):
-                        user_data[header] = padded_row[i]
-                    else:
-                        user_data[header] = ""
-                users.append(user_data)
-
-            return users
-
-        except HttpError as error:
-            logging.error(f"Google Sheets API error: {error}")
-            return []
-        except Exception as ex:
-            logging.error(f"Error reading users from spreadsheet: {str(ex)}")
-            return []
 
     async def find_user(self, discord_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -326,18 +214,7 @@ class RegistrationCog(commands.Cog):
         users = self._users_cache
         if users is None or time.monotonic() - self._users_cache_ts > _USERS_CACHE_TTL:
             asyncio.create_task(self._refresh_users_cache())
-        return self._match_user(users or [], discord_id)
-
-    @staticmethod
-    def _match_user(
-        users: List[Dict[str, Any]], discord_id: int
-    ) -> Optional[Dict[str, Any]]:
-        for user in users:
-            # Convert the stored Discord ID to str for comparison
-            stored_id = user.get("DiscordID", "")
-            if stored_id and str(stored_id) == str(discord_id):
-                return user
-        return None
+        return match_user(users or [], discord_id)
 
     async def _refresh_users_cache(self) -> None:
         """Refresh the user-list cache off any interaction deadline."""
@@ -350,254 +227,47 @@ class RegistrationCog(commands.Cog):
             self._users_refreshing = False
 
     async def add_user(self, user_data: Dict[str, Any]) -> bool:
-        """
-        Add a new user to the registration spreadsheet.
+        """Append a row to the registration sheet; invalidate the user cache.
 
-        Runs the blocking Sheets calls in a worker thread and invalidates
-        the user-list cache on success.
-
-        Args:
-            user_data: Dictionary containing user data to add
-
-        Returns:
-            True if successful, False otherwise
-        """
-        added = await asyncio.to_thread(self._add_user_sync, user_data)
-        if added:
-            self._users_cache = None  # force reload before the next pre-fill
-        return added
-
-    def _add_user_sync(self, user_data: Dict[str, Any]) -> bool:
+        Returns False (logged) when the sheet write fails."""
         try:
-            service = self._get_service()
-            if not service or not self.spreadsheet_id:
-                return False
-
-            # Get headers first to maintain column order
-            range_name = f"{self.users_sheet_name}!A1:Z1"
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-                .execute()
-            )
-
-            if "values" not in result or not result["values"]:
-                logging.error("No headers found in spreadsheet")
-                return False
-
-            headers = result["values"][0]
-
-            # Create row data in the same order as headers
-            row_data = []
-            for header in headers:
-                row_data.append(user_data.get(header, ""))
-
-            # Append the new row
-            range_name = f"{self.users_sheet_name}!A:Z"
-            body = {"values": [row_data]}
-
-            service.spreadsheets().values().append(
-                spreadsheetId=self.spreadsheet_id,
-                range=range_name,
-                valueInputOption="USER_ENTERED",
-                insertDataOption="INSERT_ROWS",
-                body=body,
-            ).execute()
-
-            logging.info(
-                f"Added user {user_data.get('DiscordID')} to registration spreadsheet"
-            )
-            return True
-
-        except HttpError as error:
-            logging.error(f"Google Sheets API error: {error}")
+            await asyncio.to_thread(self.roster.add, user_data)
+        except SheetsError as err:
+            logging.error(f"Error adding user to spreadsheet: {err}")
             return False
-        except Exception as ex:
-            logging.error(f"Error adding user to spreadsheet: {str(ex)}")
-            return False
+        self._users_cache = None  # force reload before the next pre-fill
+        logging.info(
+            f"Added user {user_data.get('DiscordID')} to registration spreadsheet"
+        )
+        return True
 
     async def update_user(self, discord_id: int, user_data: Dict[str, Any]) -> bool:
-        """
-        Update an existing user in the registration spreadsheet.
+        """Update an existing registration row; invalidate the user cache.
 
-        Runs the blocking Sheets calls in a worker thread and invalidates
-        the user-list cache on success.
-
-        Args:
-            discord_id: Discord ID of the user to update
-            user_data: Dictionary containing updated user data
-
-        Returns:
-            True if successful, False otherwise
-        """
-        updated = await asyncio.to_thread(self._update_user_sync, discord_id, user_data)
-        if updated:
-            self._users_cache = None  # force reload before the next pre-fill
-        return updated
-
-    def _update_user_sync(self, discord_id: int, user_data: Dict[str, Any]) -> bool:
+        Returns False (logged) when the sheet write fails."""
         try:
-            service = self._get_service()
-            if not service or not self.spreadsheet_id:
-                return False
-
-            # Find the user's row
-            range_name = f"{self.users_sheet_name}!A:Z"
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-                .execute()
-            )
-
-            if "values" not in result:
-                logging.error("No data found in spreadsheet")
-                return False
-
-            values = result["values"]
-            headers = values[0]
-
-            # Find Discord ID column index
-            discord_id_index = -1
-            for i, header in enumerate(headers):
-                if header == "DiscordID":
-                    discord_id_index = i
-                    break
-
-            if discord_id_index == -1:
-                logging.error("DiscordID column not found in spreadsheet")
-                return False
-
-            # Find the user's row
-            row_index = -1
-            for i, row in enumerate(values):
-                if i > 0 and len(row) > discord_id_index:
-                    try:
-                        if int(row[discord_id_index]) == discord_id:
-                            row_index = i
-                            break
-                    except (ValueError, TypeError):
-                        continue
-
-            if row_index == -1:
-                logging.error(f"User with Discord ID {discord_id} not found")
-                return False
-
-            # Update user data
-            update_row = []
-            for header in headers:
-                update_row.append(
-                    user_data.get(
-                        header,
-                        (
-                            values[row_index][headers.index(header)]
-                            if header in headers
-                            and headers.index(header) < len(values[row_index])
-                            else ""
-                        ),
-                    )
-                )
-
-            # Update the row
-            update_range = f"{self.users_sheet_name}!A{row_index + 1}"
-            body = {"values": [update_row]}
-
-            service.spreadsheets().values().update(
-                spreadsheetId=self.spreadsheet_id,
-                range=update_range,
-                valueInputOption="USER_ENTERED",
-                body=body,
-            ).execute()
-
-            logging.info(f"Updated user {discord_id} in registration spreadsheet")
-            return True
-
-        except HttpError as error:
-            logging.error(f"Google Sheets API error: {error}")
+            await asyncio.to_thread(self.roster.update, discord_id, user_data)
+        except SheetsError as err:
+            logging.error(f"Error updating user in spreadsheet: {err}")
             return False
-        except Exception as ex:
-            logging.error(f"Error updating user in spreadsheet: {str(ex)}")
-            return False
-
-    @staticmethod
-    def _get_penalty_prefix(points) -> str:
-        """
-        Return the correct (X) prefix string based on penalty points.
-
-        <3  : no prefix
-        3-5 : (X)
-        6-8 : (XX)
-        9-11 : (XXX)
-        >11  : (XXXX)
-        """
-        try:
-            pts = int(points)
-        except (ValueError, TypeError):
-            return ""
-
-        if pts < 3:
-            return ""
-        elif pts <= 5:
-            return "(X)"
-        elif pts <= 8:
-            return "(XX)"
-        elif pts <= 11:
-            return "(XXX)"
-        else:
-            return "(XXXX)"
+        self._users_cache = None
+        logging.info(f"Updated user {discord_id} in registration spreadsheet")
+        return True
 
     def _get_iracing_api(self) -> Optional[iRacingAPIHandler]:
-        """
-        Lazily initialize and return the iRacing API handler.
-
-        Returns:
-            An authenticated iRacingAPIHandler, or None if credentials are missing/invalid.
-        """
+        """Lazily initialize and return the iRacing API handler."""
         if self._iracing_api is None:
-            email = os.getenv("IRACING_EMAIL")
-            password = os.getenv("IRACING_PASSWORD")
-            client_id = os.getenv("IRACING_CLIENT_ID")
-            client_secret = os.getenv("IRACING_CLIENT_SECRET")
-            if email and password and client_id and client_secret:
-                try:
-                    self._iracing_api = iRacingAPIHandler(
-                        email=email,
-                        password=password,
-                        client_id=client_id,
-                        client_secret=client_secret,
-                        use_oauth=True,
-                    )
-                    logging.info("iRacing API handler initialized successfully")
-                except Exception as ex:
-                    logging.error(f"Failed to initialize iRacing API handler: {ex}")
-            else:
-                logging.warning(
-                    "iRacing API credentials not fully configured. "
-                    "Set IRACING_EMAIL, IRACING_PASSWORD, IRACING_CLIENT_ID, and IRACING_CLIENT_SECRET."
-                )
+            self._iracing_api = iracing_handler_from_env()
         return self._iracing_api
 
-    async def _get_iracing_name(self, cust_id: int) -> Optional[str]:
-        """
-        Look up a driver's display name in iRacing by their customer ID.
-
-        Runs the synchronous API call in a thread executor to avoid blocking the event loop.
-
-        Args:
-            cust_id: The iRacing customer ID
-
-        Returns:
-            The driver's display name, or None if not found or on error.
-        """
+    def _driver_name_sync(self, cust_id: int) -> Optional[str]:
+        """Sync driver-name lookup for the roster, run on the worker thread."""
         api = self._get_iracing_api()
         if api is None:
             logging.warning("iRacing API unavailable; skipping driver name lookup.")
             return None
         try:
-            loop = asyncio.get_event_loop()
-            name = await loop.run_in_executor(None, api.get_driver_name, cust_id)
-            return name
+            return api.get_driver_name(cust_id)
         except Exception as ex:
             logging.error(f"Error looking up iRacing name for cust_id {cust_id}: {ex}")
             return None
@@ -612,108 +282,56 @@ class RegistrationCog(commands.Cog):
         num_races: str,
     ):
         """
-        Register a new driver and assign appropriate Discord role.
+        Register a new driver through the roster, then assign the Discord
+        driver role and league nickname.
 
-        Args:
-            discord_id: Discord user ID
-            iracing_id: iRacing ID
-            iracing_name: iRacing display name
-            desired_league_name: League name preference
-            num_races: Number of races completed
+        Raises ValueError with a user-facing message when a registration
+        rule fails; SheetsError propagates on sheet-infrastructure failure.
         """
-        try:
-            members = await self.read_users()
-            # Match against the freshly-read rows, not the cache, so the
-            # add-vs-update decision stays correct after concurrent edits.
-            existing_user = self._match_user(members, discord_id)
-            other_members = [
-                m for m in members if str(m.get("DiscordID")) != str(f"{discord_id}")
-            ]
-            user_data = {
-                "DiscordID": f"'{discord_id}",
-                "iRacingID": f"'{iracing_id}",
-                "DesiredName": desired_league_name,
-                "NumRaces": num_races,
-            }
+        await asyncio.to_thread(
+            self.roster.register_driver,
+            discord_id,
+            iracing_id,
+            desired_league_name,
+            desired_league_number,
+            num_races,
+            self._driver_name_sync,
+        )
 
-            if not re.fullmatch(r"\d{1,8}", str(iracing_id)):
-                raise ValueError("iRacing ID not valid.")
-            if not re.fullmatch(r"\d{1,3}", desired_league_number):
-                raise ValueError("Car Number not valid.")
-
-            # Look up the driver's name via the iRacing API
-            iracing_name = await self._get_iracing_name(int(iracing_id))
-            if iracing_name is None:
-                raise ValueError(
-                    "iRacing ID not found. Please double-check your Customer ID and try again."
-                )
-            user_data["iRacingName"] = iracing_name
-
-            if desired_league_number in [m.get("CarNumber", "") for m in other_members]:
-                if existing_user:
-                    user_data["DesiredButTakenCarNums"] = (
-                        f"'{desired_league_number}, {existing_user.get('DesiredButTakenCarNums', '')}".strip(
-                            ", "
+        member = None
+        if self.driver_role_id:
+            guild = self.bot.get_guild(guild_id)
+            if guild:
+                member = guild.get_member(discord_id)
+                if member:
+                    role = guild.get_role(self.driver_role_id)
+                    if role:
+                        await member.add_roles(role, reason="Driver Registration")
+                        logging.info(
+                            f"Assigned driver role to user {discord_id} in guild {guild_id}"
                         )
-                    )
-                    await self.update_user(discord_id, user_data)
-                else:
-                    user_data["DesiredButTakenCarNums"] = f"'{desired_league_number}"
-                    await self.add_user(user_data)
-                raise ValueError(
-                    f"Desired league number {desired_league_number} is already taken."
-                )
-            user_data["CarNumber"] = f"'{desired_league_number}"
-            user_data["RegistrationDate"] = discord.utils.utcnow().strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-
-            if existing_user:
-                await self.update_user(discord_id, user_data)
-            else:
-                await self.add_user(user_data)
-
-            # Assign Discord role
-            if self.driver_role_id:
-                guild = self.bot.get_guild(guild_id)
-                if guild:
-                    member = guild.get_member(discord_id)
-                    if member:
-                        role = guild.get_role(self.driver_role_id)
-                        if role:
-                            await member.add_roles(role, reason="Driver Registration")
-                            logging.info(
-                                f"Assigned driver role to user {discord_id} in guild {guild_id}"
-                            )
-                        else:
-                            logging.error(
-                                f"Driver role ID {self.driver_role_id} not found in guild {guild_id}"
-                            )
                     else:
                         logging.error(
-                            f"Member with ID {discord_id} not found in guild {guild_id}"
+                            f"Driver role ID {self.driver_role_id} not found in guild {guild_id}"
                         )
                 else:
-                    logging.error(f"Guild with ID {guild_id} not found")
-
-            # Set Discord Nickname
-            discord_name = f"{desired_league_name} | {desired_league_number}"
-            if member:
-                try:
-                    await member.edit(nick=discord_name, reason="Registration Update")
-                    logging.info(
-                        f"Updated nickname for user {discord_id} to {discord_name}"
-                    )
-                except Exception as ex:
                     logging.error(
-                        f"Error updating nickname for user {discord_id}: {str(ex)}"
+                        f"Member with ID {discord_id} not found in guild {guild_id}"
                     )
+            else:
+                logging.error(f"Guild with ID {guild_id} not found")
 
-        except ValueError:
-            raise
-
-        except Exception as ex:
-            logging.error(f"Error in register_driver: {str(ex)}")
+        if member:
+            discord_name = f"{desired_league_name} | {desired_league_number}"
+            try:
+                await member.edit(nick=discord_name, reason="Registration Update")
+                logging.info(
+                    f"Updated nickname for user {discord_id} to {discord_name}"
+                )
+            except Exception as ex:
+                logging.error(
+                    f"Error updating nickname for user {discord_id}: {str(ex)}"
+                )
 
     @commands.slash_command(name="check_registrations")
     @discord.default_permissions(administrator=True)
@@ -723,132 +341,75 @@ class RegistrationCog(commands.Cog):
         This can be expanded to include additional validation logic.
         """
         await ctx.defer()
-        required_name_changes = []
-        required_number_changes = []
-        required_invites = []
-        required_accept_invites = []
-        penalty_prefix_changes = []
-
         registered_drivers = await self.read_users()
-        handler = iRacingAPIHandler(
-            os.getenv("IRACING_EMAIL"),
-            os.getenv("IRACING_PASSWORD"),
-            os.getenv("IRACING_CLIENT_ID"),
-            os.getenv("IRACING_CLIENT_SECRET"),
-            use_oauth=True,
+        handler = iracing_handler_from_env()
+        if handler is None:
+            await ctx.respond(
+                "iRacing API is not configured. Check the IRACING_* credentials.",
+                ephemeral=True,
+            )
+            return
+        league_members = handler.get_league_members(self.config.iracing_league_id)
+        pending_invites = handler.get_league_members(
+            self.config.iracing_league_id, pending=True
         )
-        league_members = handler.get_league_members(8579)
-        pending_invites = handler.get_league_members(8579, pending=True)
-
-        for driver in registered_drivers:
-            if not driver.get("RegistrationDate"):
-                continue  # skip unregistered drivers
-            iracing_id = driver.get("iRacingID", "").lstrip("'")
-            desired_name = driver.get("DesiredName", "")
-            desired_number = driver.get("CarNumber", "")
-            penalty_points = driver.get("PenaltyPoints", "")
-            penalty_prefix = self._get_penalty_prefix(penalty_points)
-            expected_name = (
-                f"{penalty_prefix} {desired_name}" if penalty_prefix else desired_name
-            )
-
-            member = next(
-                (m for m in league_members if str(m.get("cust_id")) == iracing_id), None
-            )
-            pending_member = next(
-                (m for m in pending_invites if str(m.get("cust_id")) == iracing_id),
-                None,
-            )
-
-            if iracing_id:
-                if not member and not pending_member:
-                    required_invites.append(desired_name)
-                elif pending_member:
-                    required_accept_invites.append(desired_name)
-                else:
-                    current_name = member.get("nick_name") or member.get(
-                        "display_name", ""
-                    )
-                    # Strip any existing (X) prefix to get the bare current name
-                    current_name_stripped = re.sub(
-                        r"^\([xX]{1,4}\)\s*", "", current_name
-                    )
-
-                    current_number = member.get("car_number", "")
-
-                    # Check whether the bare name is correct first
-                    if current_name_stripped != desired_name:
-                        # The base name itself is wrong — real name change needed
-                        required_name_changes.append(
-                            (current_name_stripped, desired_name)
-                        )
-                    elif current_name != expected_name:
-                        # Base name is fine but the penalty prefix is wrong
-                        penalty_prefix_changes.append(
-                            (desired_name, current_name, expected_name)
-                        )
-
-                    if current_number != desired_number:
-                        required_number_changes.append(
-                            (current_name_stripped, desired_number, current_number)
-                        )
+        status = registration_status(registered_drivers, league_members, pending_invites)
 
         embed = discord.Embed(
             title="Registration Check Results",
             color=discord.Color.blue(),
         )
-        if required_name_changes:
+        if status.name_changes:
             embed.add_field(
                 name="Name Changes Required",
                 value="\n".join(
                     [
-                        f"Rename '{iracing_id}' => '{name}' in iRacing"
-                        for iracing_id, name in required_name_changes
+                        f"Rename '{current}' => '{name}' in iRacing"
+                        for current, name in status.name_changes
                     ]
                 ),
                 inline=False,
             )
-        if required_number_changes:
+        if status.number_changes:
             embed.add_field(
                 name="Number Changes Required",
                 value="\n".join(
                     [
-                        f"{iracing_id} Requests #{numbers} (currently {current})"
-                        for iracing_id, numbers, current in required_number_changes
+                        f"{name} Requests #{requested} (currently {current})"
+                        for name, requested, current in status.number_changes
                     ]
                 ),
                 inline=False,
             )
-        if required_invites:
+        if status.invites:
             embed.add_field(
                 name="Invites Required",
                 value="\n".join(
                     [
-                        f"{iracing_id} needs to be invited to the league"
-                        for iracing_id in required_invites
+                        f"{name} needs to be invited to the league"
+                        for name in status.invites
                     ]
                 ),
                 inline=False,
             )
-        if required_accept_invites:
+        if status.accept_invites:
             embed.add_field(
                 name="Accept Invites Required",
                 value="\n".join(
                     [
-                        f"{iracing_id} needs to accept their league invite"
-                        for iracing_id in required_accept_invites
+                        f"{name} needs to accept their league invite"
+                        for name in status.accept_invites
                     ]
                 ),
                 inline=False,
             )
-
-        if penalty_prefix_changes:
+        if status.penalty_prefix_changes:
             embed.add_field(
                 name="Penalty Prefix Updates Required",
                 value="\n".join(
                     [
                         f"'{name}': rename '{current}' => '{expected}' in iRacing"
-                        for name, current, expected in penalty_prefix_changes
+                        for name, current, expected in status.penalty_prefix_changes
                     ]
                 ),
                 inline=False,

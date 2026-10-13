@@ -14,6 +14,8 @@ from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
+from .league_config import STAFF_ROLE_ID, LeagueConfig
+
 
 class StandingsView(discord.ui.View):
     def __init__(self, cog, ctx, description=""):
@@ -101,7 +103,7 @@ class StandingsView(discord.ui.View):
                         "Driver Standings",
                         "standings-class-section",
                         True,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812",
+                        f"https://www.simracerhub.com/scoring/season_standings.php?series_id={self.cog.config.srh_series_id}",
                         "",
                     )
                 )
@@ -111,7 +113,7 @@ class StandingsView(discord.ui.View):
                         "Team Standings",
                         "standings-class-section",
                         True,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=8812",
+                        f"https://www.simracerhub.com/scoring/season_standings.php?series_id={self.cog.config.srh_series_id}",
                         "Team Standings",
                     )
                 )
@@ -121,7 +123,7 @@ class StandingsView(discord.ui.View):
                         "League Stats",
                         "react-table",
                         True,
-                        "https://www.simracerhub.com/scoring/league_stats.php?season_id=28156",
+                        f"https://www.simracerhub.com/scoring/league_stats.php?season_id={self.cog.config.srh_season_id}",
                         "",
                     )
                 )
@@ -131,7 +133,7 @@ class StandingsView(discord.ui.View):
                         "AM Standings",
                         "standings-class-section",
                         True,
-                        "https://www.simracerhub.com/scoring/season_standings.php?series_id=13428",
+                        f"https://www.simracerhub.com/scoring/season_standings.php?series_id={self.cog.config.srh_am_series_id}",
                         "",
                     )
                 )
@@ -193,8 +195,9 @@ class StandingsView(discord.ui.View):
 
 
 class StandingsCog(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot, config: LeagueConfig):
         self.bot = bot
+        self.config = config
 
     def _setup_driver(self):
         """Setup and return a configured Firefox WebDriver."""
@@ -347,7 +350,7 @@ class StandingsCog(commands.Cog):
     @commands.slash_command(name="standings")
     @commands.check_any(
         commands.has_permissions(administrator=True),
-        commands.has_role(1146907150229192747),
+        commands.has_role(STAFF_ROLE_ID),
     )
     @discord.option(
         "description",

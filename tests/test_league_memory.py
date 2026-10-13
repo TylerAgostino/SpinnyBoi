@@ -102,7 +102,7 @@ class ConfigTests(unittest.TestCase):
     def test_provider_defaults_per_provider(self):
         self.assertEqual(
             lm.VectorStoreConfig(embedding_provider="ollama").resolved_model,
-            "nomic-embed-text",
+            "nomic-ai/nomic-embed-text-v1.5-GGUF:Q4_K_M",
         )
         self.assertEqual(
             lm.VectorStoreConfig(embedding_provider="openai").resolved_model,

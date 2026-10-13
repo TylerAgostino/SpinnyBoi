@@ -28,6 +28,8 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tupl
 import numpy as np
 from strands import tool as strands_tool
 
+from .env_config import env_float, env_int
+
 log = logging.getLogger(__name__)
 
 DEFAULT_OLLAMA_BASE_URL = "http://192.168.1.152:11081/v1"
@@ -96,9 +98,9 @@ class VectorStoreConfig:
             )
             provider = "ollama"
 
-        top_k = _env_int(env, "LEAGUE_VECTOR_TOP_K", 5, minimum=1)
-        threshold = _env_float(env, "LEAGUE_VECTOR_RELEVANCE_THRESHOLD", 0.35, 0.0, 1.0)
-        max_chunk = _env_int(env, "LEAGUE_VECTOR_MAX_CHUNK_CHARS", 700, minimum=50)
+        top_k = env_int(env, "LEAGUE_VECTOR_TOP_K", 5, minimum=1)
+        threshold = env_float(env, "LEAGUE_VECTOR_RELEVANCE_THRESHOLD", 0.35, 0.0, 1.0)
+        max_chunk = env_int(env, "LEAGUE_VECTOR_MAX_CHUNK_CHARS", 700, minimum=50)
 
         return cls(
             channel_id=channel_id,
@@ -109,35 +111,6 @@ class VectorStoreConfig:
             relevance_threshold=threshold,
             max_chunk_chars=max_chunk,
         )
-
-
-def _env_int(env: Dict[str, str], key: str, default: int, minimum: int) -> int:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, using default %s", key, raw, default)
-        return default
-    if value < minimum:
-        log.warning("%s=%s below minimum %s, clamping", key, value, minimum)
-        return minimum
-    return value
-
-
-def _env_float(
-    env: Dict[str, str], key: str, default: float, minimum: float, maximum: float
-) -> float:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, using default %s", key, raw, default)
-        return default
-    return max(minimum, min(maximum, value))
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +222,7 @@ def make_embedder(config: VectorStoreConfig) -> Embedder:
     return OpenAICompatibleEmbedder(
         base_url=config.resolved_base_url,
         model=config.resolved_model,
-        # api_key=api_key,
+        api_key=api_key,
     )
 
 

@@ -7,31 +7,9 @@ from typing import Any, Dict, List, Optional, Set
 import discord
 from discord.ext import commands
 
-from .api import iRacingAPIHandler
-
-try:
-    import json as _json
-
-    from google.oauth2.service_account import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.errors import HttpError
-
-    GOOGLE_APIS_AVAILABLE = True
-except ImportError:
-    logging.error(
-        "Google API libraries not installed. Attendance features will be limited."
-    )
-    GOOGLE_APIS_AVAILABLE = False
-
-
-def _col_index_to_letter(n: int) -> str:
-    """Convert a 0-based column index to an Excel-style column letter (A, B, ..., Z, AA, ...)."""
-    result = ""
-    while n >= 0:
-        result = chr(n % 26 + ord("A")) + result
-        n = n // 26 - 1
-    return result
-
+from .api import iRacingAPIHandler, iracing_handler_from_env
+from .league_config import STAFF_ROLE_ID, LeagueConfig
+from .sheets_client import SheetsClient, SheetsError, strip_id_quote
 
 class AttendanceCog(commands.Cog):
     """
@@ -43,62 +21,14 @@ class AttendanceCog(commands.Cog):
     """
 
     def __init__(
-        self,
-        bot,
-        default_sheet_name: str = "Points Entry S15-17",
-        spreadsheet_id: Optional[str] = None,
+        self, bot, config: LeagueConfig, sheets: Optional[SheetsClient] = None
     ):
         self.bot = bot
-        self.credentials = None
-        self.default_sheet_name = default_sheet_name
-        self.spreadsheet_id = spreadsheet_id or os.getenv("ATTENDANCE_SHEET_ID")
+        self.config = config
+        self.spreadsheet_id = os.getenv("ATTENDANCE_SHEET_ID")
+        self.sheets = sheets or SheetsClient.from_env()
         self._iracing_api: Optional[iRacingAPIHandler] = None
-        self._init_google_sheets()
 
-    # ------------------------------------------------------------------
-    # Google Sheets helpers
-    # ------------------------------------------------------------------
-
-    def _init_google_sheets(self) -> None:
-        """Initialize Google Sheets API credentials."""
-        if not GOOGLE_APIS_AVAILABLE:
-            logging.warning(
-                "Google APIs not available. Please install required packages."
-            )
-            return
-
-        try:
-            creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
-            if os.path.exists(creds_file):
-                self.credentials = Credentials.from_service_account_file(
-                    creds_file,
-                    scopes=["https://www.googleapis.com/auth/spreadsheets"],
-                )
-                logging.info("Google Sheets credentials loaded from file")
-            elif os.getenv("GOOGLE_CREDENTIALS_JSON"):
-                creds_json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
-                if creds_json_str:
-                    creds_json = _json.loads(creds_json_str)
-                    self.credentials = Credentials.from_service_account_info(
-                        creds_json,
-                        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-                    )
-                    logging.info("Google Sheets credentials loaded from environment")
-            else:
-                logging.error("No Google Sheets credentials found")
-        except Exception as ex:
-            logging.error(f"Error initializing Google Sheets API: {str(ex)}")
-
-    def _get_service(self):
-        """Return a Google Sheets API service instance, or None on failure."""
-        if not self.credentials:
-            logging.error("No Google credentials available")
-            return None
-        try:
-            return build("sheets", "v4", credentials=self.credentials)
-        except Exception as ex:
-            logging.error(f"Error building Google Sheets service: {str(ex)}")
-            return None
 
     # ------------------------------------------------------------------
     # iRacing API helpers
@@ -107,28 +37,7 @@ class AttendanceCog(commands.Cog):
     def _get_iracing_api(self) -> Optional[iRacingAPIHandler]:
         """Lazily initialize and return the iRacing API handler."""
         if self._iracing_api is None:
-            email = os.getenv("IRACING_EMAIL")
-            password = os.getenv("IRACING_PASSWORD")
-            client_id = os.getenv("IRACING_CLIENT_ID")
-            client_secret = os.getenv("IRACING_CLIENT_SECRET")
-            if email and password and client_id and client_secret:
-                try:
-                    self._iracing_api = iRacingAPIHandler(
-                        email=email,
-                        password=password,
-                        client_id=client_id,
-                        client_secret=client_secret,
-                        use_oauth=True,
-                    )
-                    logging.info("iRacing API handler initialized successfully")
-                except Exception as ex:
-                    logging.error(f"Failed to initialize iRacing API handler: {ex}")
-            else:
-                logging.warning(
-                    "iRacing API credentials not fully configured. "
-                    "Set IRACING_EMAIL, IRACING_PASSWORD, IRACING_CLIENT_ID, "
-                    "and IRACING_CLIENT_SECRET."
-                )
+            self._iracing_api = iracing_handler_from_env()
         return self._iracing_api
 
     def _fetch_race_finishers(
@@ -232,7 +141,7 @@ class AttendanceCog(commands.Cog):
     ) -> Dict[str, Any]:
         """
         Read the Google Sheet, find rows whose iRacing ID matches a finisher,
-        and write 0 into `target_column` for those rows using a batch update.
+        and write 0 into `target_column` for those rows in one batch update.
 
         Returns a dict with keys:
             'updated'       - number of rows updated
@@ -240,97 +149,46 @@ class AttendanceCog(commands.Cog):
             'unmatched'     - number of finisher IDs NOT found in the sheet
             'unmatched_ids' - sorted list of unmatched iRacing IDs
         """
-        service = self._get_service()
-        if not service or not self.spreadsheet_id:
-            raise Exception(
-                "Google Sheets service is not available. "
-                "Check your credentials and ATTENDANCE_SHEET_ID."
+        if not self.spreadsheet_id:
+            raise SheetsError(
+                "ATTENDANCE_SHEET_ID is not configured. "
+                "Check credentials and spreadsheet id."
             )
-
-        # Read the entire sheet (use a wide range to capture all columns)
-        range_name = f"'{sheet_name}'!A1:ZZ"
-        try:
-            result = (
-                service.spreadsheets()
-                .values()
-                .get(spreadsheetId=self.spreadsheet_id, range=range_name)
-                .execute()
-            )
-        except HttpError as err:
-            raise Exception(f"Google Sheets API error while reading sheet: {err}")
-
-        if "values" not in result or not result["values"]:
-            raise Exception(
-                f"Sheet '{sheet_name}' appears to be empty or does not exist."
-            )
-
-        all_rows: List[List[str]] = result["values"]
-        headers: List[str] = all_rows[0]
-
-        # Resolve column indices
+        headers, data_rows = self.sheets.read_grid(self.spreadsheet_id, sheet_name)
         if iracing_id_column not in headers:
-            raise Exception(
+            raise SheetsError(
                 f"Column '{iracing_id_column}' was not found in sheet headers. "
                 f"Available headers: {headers}"
             )
         if target_column not in headers:
-            raise Exception(
+            raise SheetsError(
                 f"Column '{target_column}' was not found in sheet headers. "
                 f"Available headers: {headers}"
             )
-
         iracing_col_idx = headers.index(iracing_id_column)
-        target_col_idx = headers.index(target_column)
-        target_col_letter = _col_index_to_letter(target_col_idx)
 
-        logging.info(
-            f"Sheet '{sheet_name}': iRacing ID col='{iracing_id_column}' (idx {iracing_col_idx}), "
-            f"target col='{target_column}' (idx {target_col_idx}, letter '{target_col_letter}')"
-        )
-
-        # Build batch update data
-        batch_data: List[Dict[str, Any]] = []
+        cell_values: Dict[int, Any] = {}
         matched_ids: Set[int] = set()
-
-        for row_offset, row in enumerate(all_rows[1:], start=2):  # row 1 is header
+        for row_offset, row in enumerate(data_rows, start=2):  # row 1 is header
             if len(row) <= iracing_col_idx:
                 continue  # Row is too short to have an iRacing ID
-
-            raw_id = row[iracing_col_idx]
             try:
-                row_iracing_id = int(raw_id)
+                row_iracing_id = int(strip_id_quote(row[iracing_col_idx]))
             except (ValueError, TypeError):
                 continue  # Not a valid integer ID
-
             if row_iracing_id in finisher_ids:
-                cell_ref = f"'{sheet_name}'!{target_col_letter}{row_offset}"
-                batch_data.append(
-                    {
-                        "range": cell_ref,
-                        "values": [[0]],
-                    }
-                )
+                cell_values[row_offset] = 0
                 matched_ids.add(row_iracing_id)
 
-        if batch_data:
-            body = {
-                "valueInputOption": "USER_ENTERED",
-                "data": batch_data,
-            }
-            try:
-                service.spreadsheets().values().batchUpdate(
-                    spreadsheetId=self.spreadsheet_id, body=body
-                ).execute()
-                logging.info(
-                    f"Batch updated {len(batch_data)} cell(s) in sheet '{sheet_name}'."
-                )
-            except HttpError as err:
-                raise Exception(f"Google Sheets API error while writing updates: {err}")
+        updated = self.sheets.update_column_cells(
+            self.spreadsheet_id, sheet_name, target_column, cell_values
+        )
+        if updated:
+            logging.info(f"Batch updated {updated} cell(s) in sheet '{sheet_name}'.")
 
         unmatched_ids: List[int] = sorted(finisher_ids - matched_ids)
-
         return {
-            "updated": len(batch_data),
+            "updated": updated,
             "matched": len(matched_ids),
             "unmatched": len(unmatched_ids),
             "unmatched_ids": unmatched_ids,
@@ -343,7 +201,7 @@ class AttendanceCog(commands.Cog):
     @commands.slash_command(name="mark_attendance")
     @commands.check_any(
         commands.has_permissions(administrator=True),
-        commands.has_role(1146907150229192747),
+        commands.has_role(STAFF_ROLE_ID),
     )
     @discord.option(
         "subsession_id",
@@ -361,22 +219,22 @@ class AttendanceCog(commands.Cog):
         "season",
         int,
         required=False,
-        default=16,
-        description="The season number (default: 16). Column will be S{season}R{round}.",
+        default=None,
+        description="The season number (default: the configured league season). Column will be S{season}R{round}.",
     )
     @discord.option(
         "sheet_name",
         str,
         required=False,
         default=None,
-        description="Sheet tab name to update (defaults to Points Entry S15-17).",
+        description="Sheet tab name to update (defaults to the configured points sheet).",
     )
     @discord.option(
         "iracing_id_column",
         str,
         required=False,
-        default="iRacing ID",
-        description="Column header that contains iRacing customer IDs (default: iRacing ID).",
+        default=None,
+        description="Column header that contains iRacing customer IDs (default: from config).",
     )
     @discord.option(
         "min_completion_pct",
@@ -390,9 +248,9 @@ class AttendanceCog(commands.Cog):
         ctx: discord.ApplicationContext,
         subsession_id: int,
         round: int,
-        season: int = 16,
+        season: Optional[int] = None,
         sheet_name: Optional[str] = None,
-        iracing_id_column: str = "iRacingID",
+        iracing_id_column: Optional[str] = None,
         min_completion_pct: float = 75.0,
     ):
         """
@@ -402,8 +260,12 @@ class AttendanceCog(commands.Cog):
         """
         await ctx.defer()
 
-        effective_sheet = sheet_name or self.default_sheet_name
-        column = f"S{season}R{round}"
+        effective_season = season if season is not None else self.config.season
+        effective_sheet = sheet_name or self.config.points_sheet_name
+        effective_iracing_id_column = (
+            iracing_id_column or self.config.points_iracing_id_column
+        )
+        column = f"S{effective_season}R{round}"
 
         # Clamp completion percentage to a sensible range
         if min_completion_pct <= 0 or min_completion_pct > 100:
@@ -416,7 +278,7 @@ class AttendanceCog(commands.Cog):
             # ── Step 1: fetch qualifying finishers from iRacing ──────────────
             logging.info(
                 f"markattendance invoked by {ctx.author} for subsession {subsession_id}, "
-                f"column='{column}' (season={season}, round={round}), "
+                f"column='{column}' (season={effective_season}, round={round}), "
                 f"sheet='{effective_sheet}', min_completion={min_completion_pct}%"
             )
 
@@ -436,7 +298,7 @@ class AttendanceCog(commands.Cog):
             stats = await asyncio.to_thread(
                 self._mark_attendance_in_sheet,
                 sheet_name=effective_sheet,
-                iracing_id_column=iracing_id_column,
+                iracing_id_column=effective_iracing_id_column,
                 target_column=column,
                 finisher_ids=set(finishers.keys()),
             )

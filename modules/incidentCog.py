@@ -3,6 +3,8 @@
 import discord
 from discord.ext import commands
 
+from .league_config import STAFF_ROLE_ID
+
 MAX_PENALTY_POINTS = 6
 
 class ReactionManager:
@@ -31,7 +33,7 @@ class IncidentCog(commands.Cog):
     )
     @commands.check_any(
         commands.has_permissions(administrator=True),
-        commands.has_role(1146907150229192747),
+        commands.has_role(STAFF_ROLE_ID),
     )
     async def spincident(self, ctx, subject: str = ""):
         """Create an incident poll."""

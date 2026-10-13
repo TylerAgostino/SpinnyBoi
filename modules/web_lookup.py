@@ -31,6 +31,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from strands import tool as strands_tool
 
+from .env_config import env_enabled, env_float, env_int
+
 log = logging.getLogger(__name__)
 
 DDG_API_URL = "https://api.duckduckgo.com/"
@@ -57,51 +59,22 @@ class WebLookupConfig:
     def from_env(cls, env: Optional[Dict[str, str]] = None) -> "WebLookupConfig":
         env = os.environ if env is None else env
 
-        raw_enabled = (env.get("WEB_LOOKUP_ENABLED") or "").strip().lower()
-        enabled = raw_enabled not in _FALSE_VALUES if raw_enabled else True
+        enabled = env_enabled(env, "WEB_LOOKUP_ENABLED")
 
         return cls(
             enabled=enabled,
-            timeout_seconds=_env_float(env, "WEB_LOOKUP_TIMEOUT_SECONDS", 5.0, 1.0, 30.0),
-            min_interval_seconds=_env_float(
+            timeout_seconds=env_float(env, "WEB_LOOKUP_TIMEOUT_SECONDS", 5.0, 1.0, 30.0),
+            min_interval_seconds=env_float(
                 env, "WEB_LOOKUP_MIN_INTERVAL_SECONDS", 3.0, 0.0, 60.0
             ),
-            max_results=_env_int(env, "WEB_LOOKUP_MAX_RESULTS", 4, minimum=1, maximum=10),
-            max_snippet_chars=_env_int(
+            max_results=env_int(env, "WEB_LOOKUP_MAX_RESULTS", 4, minimum=1, maximum=10),
+            max_snippet_chars=env_int(
                 env, "WEB_LOOKUP_MAX_SNIPPET_CHARS", 220, minimum=40, maximum=2000
             ),
-            max_query_chars=_env_int(
+            max_query_chars=env_int(
                 env, "WEB_LOOKUP_MAX_QUERY_CHARS", 120, minimum=10, maximum=500
             ),
         )
-
-
-def _env_int(
-    env: Dict[str, str], key: str, default: int, minimum: int, maximum: int
-) -> int:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, using default %s", key, raw, default)
-        return default
-    return max(minimum, min(maximum, value))
-
-
-def _env_float(
-    env: Dict[str, str], key: str, default: float, minimum: float, maximum: float
-) -> float:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, using default %s", key, raw, default)
-        return default
-    return max(minimum, min(maximum, value))
 
 
 # ---------------------------------------------------------------------------

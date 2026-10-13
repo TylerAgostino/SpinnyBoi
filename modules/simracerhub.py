@@ -40,12 +40,12 @@ from typing import Any, Callable, Dict, List, Optional
 
 from strands import tool as strands_tool
 
+from .env_config import env_enabled, env_float, env_int, env_int_or_none
+
 log = logging.getLogger(__name__)
 
 SRH_BASE_URL = "https://www.simracerhub.com/scoring"
 USER_AGENT = "SpinnyBoi-Discord-bot/1.0 (league stats)"
-
-_FALSE_VALUES = {"0", "false", "off", "no"}
 
 
 # ---------------------------------------------------------------------------
@@ -65,57 +65,21 @@ class SimRacerHubConfig:
     @classmethod
     def from_env(cls, env: Optional[Dict[str, str]] = None) -> "SimRacerHubConfig":
         env = os.environ if env is None else env
-        raw_enabled = (env.get("SIMRACERHUB_ENABLED") or "").strip().lower()
-        enabled = raw_enabled not in _FALSE_VALUES if raw_enabled else True
+        enabled = env_enabled(env, "SIMRACERHUB_ENABLED")
         return cls(
             enabled=enabled,
-            timeout_seconds=_env_float(
+            timeout_seconds=env_float(
                 env, "SIMRACERHUB_TIMEOUT_SECONDS", 8.0, 1.0, 30.0
             ),
-            min_interval_seconds=_env_float(
+            min_interval_seconds=env_float(
                 env, "SIMRACERHUB_MIN_INTERVAL_SECONDS", 3.0, 0.0, 60.0
             ),
-            max_rows=_env_int(env, "SIMRACERHUB_MAX_ROWS", 15, minimum=1, maximum=50),
-            default_season_id=_env_int_or_none(env, "SIMRACERHUB_SEASON_ID"),
-            default_series_id=_env_int_or_none(env, "SIMRACERHUB_SERIES_ID"),
+            max_rows=env_int(env, "SIMRACERHUB_MAX_ROWS", 15, minimum=1, maximum=50),
+            default_season_id=env_int_or_none(env, "SIMRACERHUB_SEASON_ID"),
+            default_series_id=env_int_or_none(env, "SIMRACERHUB_SERIES_ID"),
         )
 
 
-def _env_int(env: Dict[str, str], key: str, default: int, minimum: int, maximum: int) -> int:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, using default %s", key, raw, default)
-        return default
-    return max(minimum, min(maximum, value))
-
-
-def _env_int_or_none(env: Dict[str, str], key: str) -> Optional[int]:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return None
-    try:
-        return int(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, ignoring", key, raw)
-        return None
-
-
-def _env_float(
-    env: Dict[str, str], key: str, default: float, minimum: float, maximum: float
-) -> float:
-    raw = (env.get(key) or "").strip()
-    if not raw:
-        return default
-    try:
-        value = float(raw)
-    except ValueError:
-        log.warning("Invalid %s=%r, using default %s", key, raw, default)
-        return default
-    return max(minimum, min(maximum, value))
 
 
 # ---------------------------------------------------------------------------

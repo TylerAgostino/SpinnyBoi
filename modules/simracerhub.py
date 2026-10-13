@@ -41,6 +41,7 @@ from typing import Any, Callable, Dict, List, Optional
 from strands import tool as strands_tool
 
 from .env_config import env_enabled, env_float, env_int, env_int_or_none
+from .league_config import LeagueConfig
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +76,8 @@ class SimRacerHubConfig:
                 env, "SIMRACERHUB_MIN_INTERVAL_SECONDS", 3.0, 0.0, 60.0
             ),
             max_rows=env_int(env, "SIMRACERHUB_MAX_ROWS", 15, minimum=1, maximum=50),
-            default_season_id=env_int_or_none(env, "SIMRACERHUB_SEASON_ID"),
+            default_season_id=env_int_or_none(env, "SIMRACERHUB_SEASON_ID")
+            or LeagueConfig.from_env(env).srh_season_id,
             default_series_id=env_int_or_none(env, "SIMRACERHUB_SERIES_ID"),
         )
 
@@ -181,6 +183,25 @@ def normalize_standings(
     return rows[: max(1, max_rows)]
 
 
+def _sched_driver_entries(sched: Dict[str, Any]):
+    """Yield ``(driver_id, entry)`` pairs from a schedule's ``drivers`` map.
+
+    Live SRH nests results one level deeper, keyed by race id
+    (``{race_id: {driver_id: entry}}``); the flat
+    ``{driver_id: entry}`` shape also occurs. Accept both.
+    """
+    raw = sched.get("drivers") or {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        if "finish_pos" in value or "driver_id" in value:
+            yield str(key), value
+        else:
+            for inner_id, inner in value.items():
+                if isinstance(inner, dict):
+                    yield str(inner_id), inner
+
+
 def normalize_results(
     payload: Dict[str, Any],
     driver: str = "",
@@ -218,10 +239,7 @@ def normalize_results(
         track = tracks.get(str(sched.get("config_id"))) or {}
         track_name = track.get("track_name") or track.get("name") or ""
         race_date = _to_number(sched.get("race_date")) or 0
-        for entry in (sched.get("drivers") or {}).values():
-            if not isinstance(entry, dict):
-                continue
-            driver_id = str(entry.get("driver_id", ""))
+        for driver_id, entry in _sched_driver_entries(sched):
             meta = drivers_meta.get(driver_id) or {}
             name = meta.get("name", "")
             if not driver_matches(str(name), driver):

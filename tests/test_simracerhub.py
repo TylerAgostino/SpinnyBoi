@@ -7,10 +7,12 @@ maps).
 
 Run: python -m unittest tests.test_simracerhub
 """
+import os
 import socket
 import unittest
 from unittest.mock import MagicMock, patch
 
+from modules.league_config import DEFAULT_SRH_SEASON_ID
 from modules.simracerhub import (
     SimRacerHubClient,
     SimRacerHubConfig,
@@ -77,6 +79,46 @@ SAMPLE_PAYLOAD = {
         },
     ],
 }
+
+# What get_standings.php ACTUALLY returns for a schedule week: drivers keyed
+# by race id, then by driver id (captured live from season 28156, 2026-10).
+NESTED_PAYLOAD = {
+    "drivers": {
+        "48019": {"driver_id": "48019", "name": "Austin Tucker2", "is_ai": False},
+        "16262": {"driver_id": "16262", "name": "Jordan Babcock", "is_ai": False},
+    },
+    "tracks": {"55": {"track_name": "Daytona Road Course", "name": "Daytona"}},
+    "schedules": [
+        {
+            "schedule_id": "367869",
+            "race_date": str(NOW - 5 * DAY),
+            "config_id": "55",
+            "drivers": {
+                "330167": {
+                    "48019": {"driver_id": "48019", "race_id": "330167", "qualify_pos": "3", "num_laps": "20", "laps_led": "5", "finish_pos": "2", "race_points": "48", "incidents": "12", "status": "Running", "rating": "110.2"},
+                },
+                "330166": {
+                    "16262": {"driver_id": "16262", "race_id": "330166", "qualify_pos": "1", "num_laps": "20", "laps_led": "0", "finish_pos": "1", "race_points": "56", "incidents": "14", "status": "Running", "rating": "99"},
+                },
+            },
+        },
+    ],
+}
+
+
+class NestedScheduleParsingTests(unittest.TestCase):
+    def test_race_keyed_schedules_flatten_to_driver_rows(self):
+        rows = normalize_results(NESTED_PAYLOAD, now_epoch=NOW)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({r["name"] for r in rows}, {"Austin Tucker2", "Jordan Babcock"})
+        for row in rows:
+            self.assertEqual(row["track"], "Daytona Road Course")
+            self.assertIsNotNone(row["finish_pos"])
+            self.assertIsNotNone(row["race_points"])
+
+    def test_driver_filter_works_on_nested_shape(self):
+        rows = normalize_results(NESTED_PAYLOAD, driver="babcock", now_epoch=NOW)
+        self.assertEqual([r["name"] for r in rows], ["Jordan Babcock"])
 
 
 def make_client(fetch=None, config=None, clock_values=None):
@@ -196,11 +238,23 @@ class ResultsParsingTests(unittest.TestCase):
 
 class ConfigTests(unittest.TestCase):
     def test_defaults(self):
-        cfg = SimRacerHubConfig.from_env({})
+        with patch.dict(os.environ, {}, clear=True):
+            cfg = SimRacerHubConfig.from_env({})
         self.assertTrue(cfg.enabled)
         self.assertEqual(cfg.timeout_seconds, 8.0)
         self.assertEqual(cfg.max_rows, 15)
-        self.assertIsNone(cfg.default_season_id)
+        # unset SIMRACERHUB_SEASON_ID falls back to the league default season
+        self.assertEqual(cfg.default_season_id, DEFAULT_SRH_SEASON_ID)
+        self.assertIsNone(cfg.default_series_id)
+
+    def test_env_mapping_is_isolated_from_process_env(self):
+        # SRH_* values in the supplied mapping win; the real process
+        # environment must not leak in through the LeagueConfig fallback.
+        cfg = SimRacerHubConfig.from_env(
+            {"SRH_SEASON_ID": "99999", "SIMRACERHUB_SERIES_ID": "4242"}
+        )
+        self.assertEqual(cfg.default_season_id, 99999)
+        self.assertEqual(cfg.default_series_id, 4242)
 
     def test_disabled_flag(self):
         for value in ("0", "false", "OFF"):

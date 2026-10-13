@@ -23,7 +23,7 @@ Env knobs (empty string or unset = default):
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
+from typing import Mapping, Optional, Tuple
 
 DEFAULT_SEASON = 16
 DEFAULT_STAFF_ROLE_ID = 1146907150229192747
@@ -39,17 +39,17 @@ DEFAULT_DEBUG_GUILD_IDS = (420037391454044171, 981935710514839572)
 DEFAULT_AUTO_DELETE_CHANNEL_ID = 1362287075142930442
 
 
-def _env_str(name: str, default: str) -> str:
+def _env_str(name: str, default: str, env: Mapping[str, str]) -> str:
     """Return the env value, or the default when unset/empty."""
-    value = os.getenv(name)
+    value = env.get(name)
     if value is None or value.strip() == "":
         return default
     return value
 
 
-def _env_int(name: str, default: int) -> int:
+def _env_int(name: str, default: int, env: Mapping[str, str]) -> int:
     """Return the env value as int, falling back to the default on garbage."""
-    raw = os.getenv(name)
+    raw = env.get(name)
     if raw is None or raw.strip() == "":
         return default
     try:
@@ -59,9 +59,9 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _env_int_tuple(name: str, default: Tuple[int, ...]) -> Tuple[int, ...]:
+def _env_int_tuple(name: str, default: Tuple[int, ...], env: Mapping[str, str]) -> Tuple[int, ...]:
     """Return comma-separated ints, falling back to the default on garbage."""
-    raw = os.getenv(name)
+    raw = env.get(name)
     if raw is None or raw.strip() == "":
         return default
     try:
@@ -74,7 +74,7 @@ def _env_int_tuple(name: str, default: Tuple[int, ...]) -> Tuple[int, ...]:
 # Discord.py evaluates command decorators at class-definition time, so the
 # staff role gate cannot come from an instance. Read it here, once, so every
 # cog gate shares one source.
-STAFF_ROLE_ID = _env_int("LEAGUE_STAFF_ROLE_ID", DEFAULT_STAFF_ROLE_ID)
+STAFF_ROLE_ID = _env_int("LEAGUE_STAFF_ROLE_ID", DEFAULT_STAFF_ROLE_ID, os.environ)
 
 
 @dataclass(frozen=True)
@@ -94,25 +94,34 @@ class LeagueConfig:
     auto_delete_channel_id: int = DEFAULT_AUTO_DELETE_CHANNEL_ID
 
     @classmethod
-    def from_env(cls) -> "LeagueConfig":
+    def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "LeagueConfig":
+        env = os.environ if env is None else env
         return cls(
-            season=_env_int("LEAGUE_SEASON", DEFAULT_SEASON),
-            driver_role_id=_env_int("LEAGUE_DRIVER_ROLE_ID", DEFAULT_DRIVER_ROLE_ID),
+            season=_env_int("LEAGUE_SEASON", DEFAULT_SEASON, env),
+            driver_role_id=_env_int(
+                "LEAGUE_DRIVER_ROLE_ID", DEFAULT_DRIVER_ROLE_ID, env
+            ),
             registration_sheet_name=_env_str(
-                "LEAGUE_REGISTRATION_SHEET", DEFAULT_REGISTRATION_SHEET
+                "LEAGUE_REGISTRATION_SHEET", DEFAULT_REGISTRATION_SHEET, env
             ),
-            points_sheet_name=_env_str("LEAGUE_POINTS_SHEET", DEFAULT_POINTS_SHEET),
+            points_sheet_name=_env_str(
+                "LEAGUE_POINTS_SHEET", DEFAULT_POINTS_SHEET, env
+            ),
             points_iracing_id_column=_env_str(
-                "LEAGUE_POINTS_ID_COLUMN", DEFAULT_POINTS_ID_COLUMN
+                "LEAGUE_POINTS_ID_COLUMN", DEFAULT_POINTS_ID_COLUMN, env
             ),
-            iracing_league_id=_env_int("IRACING_LEAGUE_ID", DEFAULT_IRACING_LEAGUE_ID),
-            srh_series_id=_env_int("SRH_SERIES_ID", DEFAULT_SRH_SERIES_ID),
-            srh_am_series_id=_env_int("SRH_AM_SERIES_ID", DEFAULT_SRH_AM_SERIES_ID),
-            srh_season_id=_env_int("SRH_SEASON_ID", DEFAULT_SRH_SEASON_ID),
+            iracing_league_id=_env_int(
+                "IRACING_LEAGUE_ID", DEFAULT_IRACING_LEAGUE_ID, env
+            ),
+            srh_series_id=_env_int("SRH_SERIES_ID", DEFAULT_SRH_SERIES_ID, env),
+            srh_am_series_id=_env_int(
+                "SRH_AM_SERIES_ID", DEFAULT_SRH_AM_SERIES_ID, env
+            ),
+            srh_season_id=_env_int("SRH_SEASON_ID", DEFAULT_SRH_SEASON_ID, env),
             debug_guild_ids=_env_int_tuple(
-                "LEAGUE_DEBUG_GUILD_IDS", DEFAULT_DEBUG_GUILD_IDS
+                "LEAGUE_DEBUG_GUILD_IDS", DEFAULT_DEBUG_GUILD_IDS, env
             ),
             auto_delete_channel_id=_env_int(
-                "LEAGUE_AUTO_DELETE_CHANNEL_ID", DEFAULT_AUTO_DELETE_CHANNEL_ID
+                "LEAGUE_AUTO_DELETE_CHANNEL_ID", DEFAULT_AUTO_DELETE_CHANNEL_ID, env
             ),
         )

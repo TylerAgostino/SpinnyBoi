@@ -1,0 +1,68 @@
+# pyright: basic
+"""Live integration tests: real HTTP against simracerhub.com scoring pages.
+
+These exercise the actual endpoints (``search_suggest.php`` /
+``get_standings.php``) through the real client — default urllib fetch, real
+config, league default season. They catch upstream shape changes that the
+offline fixtures (tests/test_simracerhub.py) drift from.
+
+Skipped unless ``SIMRACERHUB_LIVE=1`` so the default suite stays offline:
+
+    SIMRACERHUB_LIVE=1 .venv\\Scripts\\python -m unittest tests.test_simracerhub_live
+
+Run them well-spaced; the site expects polite traffic.
+"""
+import os
+import unittest
+
+from modules.simracerhub import SimRacerHubClient, SimRacerHubConfig
+
+LIVE = os.environ.get("SIMRACERHUB_LIVE", "") == "1"
+
+
+@unittest.skipUnless(LIVE, "set SIMRACERHUB_LIVE=1 to hit the real endpoints")
+class LiveSimRacerHubTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        config = SimRacerHubConfig.from_env({})
+        config.min_interval_seconds = 0.0  # back-to-back fetches are fine (3 total)
+        cls.client = SimRacerHubClient(config=config)
+
+    def test_standings_default_season(self):
+        out = self.client.standings()
+        self.assertEqual(out["status"], "ok", out.get("error"))
+        rows = out["rows"]
+        self.assertTrue(rows, "league season returned zero standings rows")
+        self.assertEqual(rows[0]["pos"], 1)
+        for row in rows:
+            self.assertTrue(row["name"])
+            self.assertIsInstance(row["points"], (int, float))
+        self.assertFalse(
+            any(row["is_ai"] for row in rows),
+            "AI drivers leaked into standings rows",
+        )
+
+    def test_results_recent_season_races(self):
+        # days=3650 keeps every past race in the window (the parser still
+        # scans only the most recent scored weeks), so this can't rot as a
+        # season ages out of a fixed 365-day window.
+        out = self.client.results(days=3650)
+        self.assertEqual(out["status"], "ok", out.get("error"))
+        rows = out["rows"]
+        self.assertTrue(rows, "no race results parsed from live payload")
+        for row in rows:
+            self.assertTrue(row["name"], "result row lost its driver name")
+            self.assertIsNotNone(row["finish_pos"])
+            self.assertTrue(row["track"], "result row lost its track name")
+
+    def test_resolve_driver(self):
+        out = self.client.resolve_driver("Austin Tucker")
+        self.assertEqual(out["status"], "ok", out.get("error"))
+        self.assertTrue(out["drivers"])
+        self.assertTrue(
+            all(d["driver_id"] and d["name"] for d in out["drivers"])
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

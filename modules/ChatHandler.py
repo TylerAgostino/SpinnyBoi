@@ -40,12 +40,16 @@ def _make_agent(model, system_prompt=None, messages=None, tools=None) -> Agent:
 
     A fresh Agent is built per invocation so ``agent.messages`` never
     accumulates across Discord messages (history is rebuilt from Discord
-    each time and would otherwise be double-counted).
+    each time and would otherwise be double-counted). The ``messages`` list
+    is copied rather than adopted: strands appends the prompt and every
+    reply to ``agent.messages`` in place, so aliasing one list across the
+    parse-retry attempts in ``respond_in_chat`` would show the model the
+    trigger message once per attempt.
     """
     return Agent(
         model=model,
         system_prompt=system_prompt,
-        messages=messages,
+        messages=list(messages) if messages is not None else None,
         tools=tools or [],
     )
 
@@ -138,8 +142,14 @@ CHAT_SYSTEM_PROMPT = """You are a bot called SpinnyBoi behaving as a normal pers
                     "content": <response>
                 }}
             Do not sign your messages or add any extra text outside the JSON object.
+
                 """
 
+RETRY_FORMAT_DIRECTIVE = (
+    "Your previous reply was rejected: it was not the required JSON object. "
+    'Send it again as ONLY {"user": "SpinnyBoi", "content": "<your reply>"} - '
+    "same answer, no prose before or after, no code fences, no thinking text."
+)
 
 def _enabled_tools():
     """Collect the chat tools whose adapters are configured.
@@ -165,7 +175,10 @@ async def respond_in_chat(message, bot_user, model=None):
 
     `model` overrides the default chat model (tests inject a double).
     Never raises for a bad reply: after three unparsable attempts the last
-    transformed raw string is returned."""
+    transformed raw string is returned. A retry continues the SAME agent
+    conversation with a reformat directive - the model sees its own bad
+    reply and the tool results stay in context, instead of the whole agent
+    (including another tool call cycle) being rebuilt from scratch."""
     channel = await bot_user.fetch_channel(message.channel.id)
     history = [m async for m in channel.history(limit=100, before=message)]
     history.reverse()
@@ -201,15 +214,23 @@ async def respond_in_chat(message, bot_user, model=None):
         }
     )
 
+    tools = _enabled_tools()
+    agent = None
+    prompt = trigger
     x = 0
     r = None
     msg = None
-    tools = _enabled_tools()
     while x < 3 and r is None:
-        agent = _make_agent(
-            model or chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages, tools=tools
-        )
-        response = await agent.invoke_async(trigger)
+        if agent is None:
+            agent = _make_agent(
+                model or chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages, tools=tools
+            )
+        else:
+            logging.warning(
+                "chat reply %d was not parseable JSON; asking the model to reformat", x
+            )
+            prompt = RETRY_FORMAT_DIRECTIVE
+        response = await agent.invoke_async(prompt)
         msg, r = _parse_chat_reply(_extract_text(response))
         x += 1  # Increment counter to avoid infinite loop
     if r is None:

@@ -227,6 +227,47 @@ class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(make_agent.call_args.args[0], marker)
 
 
+
+    async def test_parse_retries_continue_the_same_conversation(self):
+        """A failed parse must not rebuild the agent from scratch: retries
+        continue the same conversation with the reformat directive, so the
+        model sees its own bad reply and any tool results stay in context
+        instead of another full tool cycle."""
+        trigger = make_discord_message("hey bot")
+        bot = make_bot_user([make_discord_message("past note", nick="someone")])
+        agent = fake_agent(
+            [
+                "garbage not json",
+                '{"user": "SpinnyBoi"}',
+                '{"user": "SpinnyBoi", "content": "finally"}',
+            ]
+        )
+        with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "finally")
+        self.assertEqual(make_agent.call_count, 1)
+        self.assertEqual(agent.invoke_async.await_count, 3)
+        first_prompt = agent.invoke_async.call_args_list[0].args[0]
+        self.assertIn("hey bot", first_prompt)
+        for retry_call in agent.invoke_async.call_args_list[1:]:
+            directive = retry_call.args[0]
+            self.assertNotIn("hey bot", directive)
+            self.assertIn("JSON", directive)
+        # the caller's history list stayed pristine (one history message,
+        # never the trigger nor any reply appended to it)
+        history = make_agent.call_args.args[2]
+        self.assertEqual(len(history), 1)
+
+    def test_make_agent_copies_history_list(self):
+        history = [{"role": "user", "content": [{"text": "hi"}]}]
+        agent = ChatHandler._make_agent(MagicMock(), "sys", history)
+        self.assertIsNot(agent.messages, history)
+        agent.messages.append({"role": "user", "content": [{"text": "trigger"}]})
+        self.assertEqual(len(history), 1)
+
 class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_text(self):
         agent = fake_agent(["Patience, mortal."])

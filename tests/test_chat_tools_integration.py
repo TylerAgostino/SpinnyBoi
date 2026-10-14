@@ -43,10 +43,10 @@ WEB_PAYLOAD = {
 }
 
 SRH_PAYLOAD = {
-    "drivers": {"16262": {"driver_id": "16262", "name": "Jordan Babcock", "is_ai": False}},
+    "drivers": {"16262": {"driver_id": "16262", "name": "Danny Dummy", "is_ai": False}},
     "rps": {
         "16262": {
-            "drid": "16262", "name": "Babcock, Jordan", "starts": "8", "counted": "7",
+            "drid": "16262", "name": "Dummy, Danny", "starts": "8", "counted": "7",
             "tpts": "500", "wins": "3", "poles": "0", "t3": "7", "t5": "7", "t10": "8",
             "laps": "260", "inc": "40", "rat": "990.5",
         }
@@ -189,10 +189,10 @@ class AgentToolSelectionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["status"], "ok")
             self.assertTrue(result["rows"])
             row = result["rows"][0] if len(result["rows"]) == 1 else next(
-                r for r in result["rows"] if "Babcock" in r.get("name", "")
+                r for r in result["rows"] if "Dummy" in r.get("name", "")
             )
             self.assertEqual(row["points"], 500)
-            return '{"user": "SpinnyBoi", "content": "Babcock leads with 500, 3 wins. we still beat him tonight."}'
+            return '{"user": "SpinnyBoi", "content": "Dummy leads with 500, 3 wins. we still beat him tonight."}'
 
         out, _ = await self._run_with_agent("whos winning the championship", script, None, None, make_srh())
         self.assertIn("500", out)

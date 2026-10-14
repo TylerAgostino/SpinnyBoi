@@ -7,13 +7,17 @@ maps).
 
 Run: python -m unittest tests.test_simracerhub
 """
+import email.message
 import os
 import socket
 import unittest
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 from modules.league_config import DEFAULT_SRH_SEASON_ID
 from modules.simracerhub import (
+    MAX_RETRY_WAIT_SECONDS,
+    SRHRetryableFetchError,
     SimRacerHubClient,
     SimRacerHubConfig,
     build_suggest_url,
@@ -30,19 +34,19 @@ DAY = 86400
 
 SAMPLE_PAYLOAD = {
     "drivers": {
-        "48019": {"driver_id": "48019", "name": "Austin Tucker2", "last_first": "Tucker2, Austin", "is_ai": False},
-        "16262": {"driver_id": "16262", "name": "Jordan Babcock", "last_first": "Babcock, Jordan", "is_ai": False},
+        "48019": {"driver_id": "48019", "name": "Speedy McFast2", "last_first": "McFast2, Speedy", "is_ai": False},
+        "16262": {"driver_id": "16262", "name": "Danny Dummy", "last_first": "Dummy, Danny", "is_ai": False},
         "99999": {"driver_id": "99999", "name": "Robot Racer", "last_first": "Racer, Robot", "is_ai": True},
     },
     "rps": {
         "48019": {
-            "drid": "48019", "name": "Tucker2, Austin", "starts": "9", "counted": "7",
+            "drid": "48019", "name": "McFast2, Speedy", "starts": "9", "counted": "7",
             "tpts": "443", "rpts": "405", "bpts": "38", "wins": "1", "poles": "1",
             "t3": "6", "t5": "6", "t10": "8", "laps": "266", "inc": "141",
             "rat": "1003.7587", "races": {"379770": {"race_points": "56"}},
         },
         "16262": {
-            "drid": "16262", "name": "Babcock, Jordan", "starts": "8", "counted": "7",
+            "drid": "16262", "name": "Dummy, Danny", "starts": "8", "counted": "7",
             "tpts": "500", "wins": "3", "poles": "0", "t3": "7", "t5": "7", "t10": "8",
             "laps": "260", "inc": "40", "rat": "990.5",
         },
@@ -92,8 +96,8 @@ SAMPLE_PAYLOAD = {
 # by race id, then by driver id (captured live from season 28156, 2026-10).
 NESTED_PAYLOAD = {
     "drivers": {
-        "48019": {"driver_id": "48019", "name": "Austin Tucker2", "is_ai": False},
-        "16262": {"driver_id": "16262", "name": "Jordan Babcock", "is_ai": False},
+        "48019": {"driver_id": "48019", "name": "Speedy McFast2", "is_ai": False},
+        "16262": {"driver_id": "16262", "name": "Danny Dummy", "is_ai": False},
     },
     "tracks": {"55": {"track_name": "Daytona Road Course", "name": "Daytona"}},
     "teams": {"901": {"name": "Test Squad"}},
@@ -120,51 +124,51 @@ class NestedScheduleParsingTests(unittest.TestCase):
     def test_race_keyed_schedules_flatten_to_driver_rows(self):
         rows = normalize_results(NESTED_PAYLOAD, now_epoch=NOW)
         self.assertEqual(len(rows), 2)
-        self.assertEqual({r["name"] for r in rows}, {"Austin Tucker2", "Jordan Babcock"})
+        self.assertEqual({r["name"] for r in rows}, {"Speedy McFast2", "Danny Dummy"})
         for row in rows:
             self.assertEqual(row["track"], "Daytona Road Course")
             self.assertIsNotNone(row["finish_pos"])
             self.assertIsNotNone(row["race_points"])
         self.assertEqual(
             {r["name"]: r["team"] for r in rows},
-            {"Austin Tucker2": None, "Jordan Babcock": "Test Squad"},
+            {"Speedy McFast2": None, "Danny Dummy": "Test Squad"},
         )
 
     def test_driver_filter_works_on_nested_shape(self):
-        rows = normalize_results(NESTED_PAYLOAD, driver="babcock", now_epoch=NOW)
-        self.assertEqual([r["name"] for r in rows], ["Jordan Babcock"])
+        rows = normalize_results(NESTED_PAYLOAD, driver="dummy", now_epoch=NOW)
+        self.assertEqual([r["name"] for r in rows], ["Danny Dummy"])
 
 
 class TeamAwarenessTests(unittest.TestCase):
     def test_standings_rows_carry_season_team(self):
         rows = {r["name"]: r for r in normalize_standings(SAMPLE_PAYLOAD)}
-        self.assertEqual(rows["Austin Tucker2"]["team"], "Test Squad")
+        self.assertEqual(rows["Speedy McFast2"]["team"], "Test Squad")
         # dangling team id drops the team rather than inventing one
-        self.assertIsNone(rows["Jordan Babcock"]["team"])
+        self.assertIsNone(rows["Danny Dummy"]["team"])
         self.assertIsNone(rows["Robot Racer"]["team"])
 
     def test_standings_filter_matches_team_name(self):
         rows = normalize_standings(SAMPLE_PAYLOAD, driver="test squad")
-        self.assertEqual([r["name"] for r in rows], ["Austin Tucker2"])
+        self.assertEqual([r["name"] for r in rows], ["Speedy McFast2"])
 
     def test_results_prefer_per_race_team_assignment(self):
         rows = normalize_results(SAMPLE_PAYLOAD, now_epoch=NOW)
-        babcock = [r for r in rows if r["name"] == "Jordan Babcock"]
-        self.assertEqual(len(babcock), 1)
-        self.assertEqual(babcock[0]["team"], "Merc Squad")  # via P-2
-        tucker = [r for r in rows if r["name"] == "Austin Tucker2"]
-        self.assertTrue(tucker)
+        dummy = [r for r in rows if r["name"] == "Danny Dummy"]
+        self.assertEqual(len(dummy), 1)
+        self.assertEqual(dummy[0]["team"], "Merc Squad")  # via P-2
+        speedy = [r for r in rows if r["name"] == "Speedy McFast2"]
+        self.assertTrue(speedy)
         self.assertTrue(
-            all(r["team"] == "Test Squad" for r in tucker),
+            all(r["team"] == "Test Squad" for r in speedy),
             "P-1 has no assignment; season-level team must be used",
         )
 
     def test_results_filter_matches_team_name(self):
         rows = normalize_results(SAMPLE_PAYLOAD, driver="Merc Squad", now_epoch=NOW)
-        self.assertEqual({r["name"] for r in rows}, {"Jordan Babcock"})
+        self.assertEqual({r["name"] for r in rows}, {"Danny Dummy"})
 
 
-def make_client(fetch=None, config=None, clock_values=None):
+def make_client(fetch=None, config=None, clock_values=None, sleep=None):
     fetch = fetch if fetch is not None else MagicMock(return_value=SAMPLE_PAYLOAD)
     if clock_values:
         values = list(clock_values)
@@ -176,21 +180,37 @@ def make_client(fetch=None, config=None, clock_values=None):
             now = ticks["n"] * 1000.0  # generous spacing; rate-limit tests pass explicit clocks
             ticks["n"] += 1
             return now
-    client = SimRacerHubClient(config or SimRacerHubConfig(), fetch_json=fetch, clock=clock)
+    client = SimRacerHubClient(config or SimRacerHubConfig(), fetch_json=fetch, clock=clock, sleep=sleep)
     return client
+
+def never_sleep(seconds):  # keep tests from really sleeping
+    pass
+
+
+def http_error(code, retry_after=None):
+    headers = email.message.Message()
+    if retry_after is not None:
+        headers["Retry-After"] = str(retry_after)
+    return urllib.error.HTTPError(
+        "https://www.simracerhub.com/scoring/get_standings.php?season_id=1",
+        code,
+        "Too Many Requests",
+        headers,
+        None,
+    )
 
 
 class QueryFormattingTests(unittest.TestCase):
     def test_clean_driver_filter(self):
-        self.assertEqual(clean_driver_filter("  tucker   bragg  "), "tucker bragg")
+        self.assertEqual(clean_driver_filter("  speedy   mcfast  "), "speedy mcfast")
         self.assertEqual(clean_driver_filter(None), "")
         self.assertEqual(len(clean_driver_filter("a" * 200)), 60)
 
     def test_driver_matches(self):
-        self.assertTrue(driver_matches("Austin Tucker2", "tucker"))
-        self.assertTrue(driver_matches("Tucker Bragg", "TUCKER BRAGG"))
-        self.assertTrue(driver_matches("Austin Tucker2", "austint2".replace("t2", "tucker2")))
-        self.assertFalse(driver_matches("Jordan Babcock", "tucker"))
+        self.assertTrue(driver_matches("Speedy McFast2", "mcfast"))
+        self.assertTrue(driver_matches("Wally Widgetton", "WALLY WIDGETTON"))
+        self.assertTrue(driver_matches("Speedy McFast2", "speedymcfast2"))
+        self.assertFalse(driver_matches("Danny Dummy", "mcfast"))
         self.assertTrue(driver_matches("Anyone", ""))
 
     def test_normalize_days(self):
@@ -215,19 +235,19 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("class_id=7", build_standings_url(29913, 7))
 
     def test_suggest_url(self):
-        url = build_suggest_url("Tucker Bragg")
+        url = build_suggest_url("Speedy McFast")
         self.assertIn("search_suggest.php", url)
-        self.assertIn("q=Tucker+Bragg", url)
+        self.assertIn("q=Speedy+McFast", url)
 
 
 class StandingsParsingTests(unittest.TestCase):
     def test_sorted_by_points_and_positioned(self):
         rows = normalize_standings(SAMPLE_PAYLOAD)
-        self.assertEqual([r["name"] for r in rows], ["Jordan Babcock", "Austin Tucker2", "Robot Racer"])
+        self.assertEqual([r["name"] for r in rows], ["Danny Dummy", "Speedy McFast2", "Robot Racer"])
         self.assertEqual([r["pos"] for r in rows], [1, 2, 3])
 
     def test_numeric_coercion_and_inc_rate(self):
-        row = next(r for r in normalize_standings(SAMPLE_PAYLOAD) if r["name"] == "Austin Tucker2")
+        row = next(r for r in normalize_standings(SAMPLE_PAYLOAD) if r["name"] == "Speedy McFast2")
         self.assertEqual(row["points"], 443)
         self.assertEqual(row["wins"], 1)
         self.assertEqual(row["rating"], 1003.7587)
@@ -235,8 +255,8 @@ class StandingsParsingTests(unittest.TestCase):
         self.assertIs(row["is_ai"], False)
 
     def test_driver_filter(self):
-        rows = normalize_standings(SAMPLE_PAYLOAD, driver="tucker")
-        self.assertEqual([r["name"] for r in rows], ["Austin Tucker2"])
+        rows = normalize_standings(SAMPLE_PAYLOAD, driver="mcfast")
+        self.assertEqual([r["name"] for r in rows], ["Speedy McFast2"])
 
     def test_max_rows(self):
         self.assertEqual(len(normalize_standings(SAMPLE_PAYLOAD, max_rows=2)), 2)
@@ -255,7 +275,7 @@ class ResultsParsingTests(unittest.TestCase):
         first = rows[0]
         self.assertEqual(first["track"], "Homestead Miami Speedway")
         self.assertEqual(first["finish_pos"], 1)  # sorted by finish within week
-        self.assertEqual(first["name"], "Austin Tucker2")
+        self.assertEqual(first["name"], "Speedy McFast2")
 
     def test_days_filter_excludes_old_weeks(self):
         rows = normalize_results(SAMPLE_PAYLOAD, now_epoch=NOW, days=30)
@@ -268,8 +288,8 @@ class ResultsParsingTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
 
     def test_driver_filter(self):
-        rows = normalize_results(SAMPLE_PAYLOAD, driver="babcock", now_epoch=NOW)
-        self.assertEqual([r["name"] for r in rows], ["Jordan Babcock"])
+        rows = normalize_results(SAMPLE_PAYLOAD, driver="dummy", now_epoch=NOW)
+        self.assertEqual([r["name"] for r in rows], ["Danny Dummy"])
 
     def test_max_weeks_bounds_scan(self):
         rows = normalize_results(SAMPLE_PAYLOAD, now_epoch=NOW, days=365, max_weeks=1)
@@ -286,6 +306,9 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(cfg.enabled)
         self.assertEqual(cfg.timeout_seconds, 8.0)
         self.assertEqual(cfg.max_rows, 15)
+        self.assertEqual(cfg.max_retries, 2)
+        self.assertEqual(cfg.retry_base_seconds, 2.0)
+        self.assertEqual(cfg.cache_ttl_seconds, 300.0)
         # unset SIMRACERHUB_SEASON_ID falls back to the league default season
         self.assertEqual(cfg.default_season_id, DEFAULT_SRH_SEASON_ID)
         self.assertIsNone(cfg.default_series_id)
@@ -310,6 +333,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.max_rows, 50)
         self.assertEqual(cfg.timeout_seconds, 8.0)
         self.assertEqual(cfg.default_season_id, 29913)
+        cfg = SimRacerHubConfig.from_env(
+            {
+                "SIMRACERHUB_MAX_RETRIES": "99",
+                "SIMRACERHUB_RETRY_BASE_SECONDS": "junk",
+                "SIMRACERHUB_CACHE_TTL_SECONDS": "-1",
+            }
+        )
+        self.assertEqual(cfg.max_retries, 5)
+        self.assertEqual(cfg.retry_base_seconds, 2.0)
+        self.assertEqual(cfg.cache_ttl_seconds, 0.0)
 
 
 class ClientTests(unittest.TestCase):
@@ -319,7 +352,7 @@ class ClientTests(unittest.TestCase):
         out = client.standings(season_id=29913)
         self.assertEqual(out["status"], "ok")
         self.assertEqual(out["season_id"], 29913)
-        self.assertEqual(out["rows"][0]["name"], "Jordan Babcock")
+        self.assertEqual(out["rows"][0]["name"], "Danny Dummy")
         url, timeout = fetch.call_args[0]
         self.assertIn("get_standings.php", url)
         self.assertEqual(timeout, 8.0)
@@ -327,9 +360,9 @@ class ClientTests(unittest.TestCase):
     def test_results_success_passes_days(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
         client = make_client(fetch)
-        out = client.results(season_id=29913, driver="tucker", days=365)
+        out = client.results(season_id=29913, driver="mcfast", days=365)
         self.assertEqual(out["status"], "ok")
-        self.assertEqual({r["name"] for r in out["rows"]}, {"Austin Tucker2"})
+        self.assertEqual({r["name"] for r in out["rows"]}, {"Speedy McFast2"})
 
     def test_default_season_from_config(self):
         client = make_client(config=SimRacerHubConfig(default_season_id=123))
@@ -347,27 +380,40 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(out["status"], "no_data")
         self.assertIn("not found", out["error"])
 
-    def test_network_error_handled(self):
+    def test_transient_network_errors_retried_then_surfaced(self):
         fetch = MagicMock(side_effect=ConnectionError("boom"))
-        out = make_client(fetch).results(season_id=1)
+        sleeps = []
+        out = make_client(fetch, sleep=sleeps.append).results(season_id=1)
         self.assertEqual(out, {"status": "error", "rows": []})
+        self.assertEqual(fetch.call_count, 3)  # 1 try + 2 retries (default budget)
+        self.assertEqual(sleeps, [2.0, 4.0])  # exponential from retry_base_seconds
 
-    def test_timeout_handled(self):
+    def test_timeout_retried_then_surfaced(self):
         fetch = MagicMock(side_effect=socket.timeout("timed out"))
-        out = make_client(fetch).standings(season_id=1)
+        out = make_client(fetch, sleep=never_sleep).standings(season_id=1)
         self.assertEqual(out["status"], "error")
+        self.assertEqual(fetch.call_count, 3)
 
     def test_non_dict_payload(self):
         out = make_client(MagicMock(return_value=[])).standings(season_id=1)
         self.assertEqual(out["status"], "error")
 
-    def test_rate_limiting(self):
+    def test_pacing_waits_instead_of_dropping_calls(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
-        client = make_client(fetch, clock_values=[100.0, 101.0])
+        sleeps = []
+        # second call only 1s after the first (min interval 3s): the client
+        # waits the remaining 2s and serves the call instead of answering
+        # "rate_limited". different seasons keep the payload cache out of it.
+        client = make_client(
+            fetch,
+            clock_values=[100.0, 101.0, 102.0, 102.0, 105.0],
+            sleep=sleeps.append,
+        )
         self.assertEqual(client.standings(season_id=1)["status"], "ok")
-        second = client.results(season_id=1)
-        self.assertEqual(second["status"], "rate_limited")
-        self.assertEqual(fetch.call_count, 1)
+        second = client.results(season_id=2, days=3650)
+        self.assertEqual(second["status"], "ok")
+        self.assertEqual(sleeps, [2.0])
+        self.assertEqual(fetch.call_count, 2)
 
     def test_disabled(self):
         fetch = MagicMock()
@@ -376,16 +422,100 @@ class ClientTests(unittest.TestCase):
         fetch.assert_not_called()
 
     def test_resolve_driver(self):
-        fetch = MagicMock(return_value={"drivers": [{"id": 71940, "name": "Tucker Bragg", "is_ai": False}], "series": []})
-        out = make_client(fetch).resolve_driver("Tucker")
+        fetch = MagicMock(return_value={"drivers": [{"id": 71940, "name": "Speedy McFast", "is_ai": False}], "series": []})
+        out = make_client(fetch).resolve_driver("Speedy")
         self.assertEqual(out["status"], "ok")
-        self.assertEqual(out["drivers"], [{"driver_id": 71940, "name": "Tucker Bragg"}])
+        self.assertEqual(out["drivers"], [{"driver_id": 71940, "name": "Speedy McFast"}])
 
     def test_resolve_driver_empty_query(self):
         fetch = MagicMock()
         out = make_client(fetch).resolve_driver("   ")
         self.assertEqual(out["status"], "empty_query")
         fetch.assert_not_called()
+
+
+class FetchResilienceTests(unittest.TestCase):
+    """simracerhub.com aggressively rate-limits: fetches retry with backoff
+    (honouring Retry-After) and repeat URLs are served from a short cache."""
+
+    def test_429_retried_after_retry_after_seconds(self):
+        fetch = MagicMock(side_effect=[http_error(429, 7), SAMPLE_PAYLOAD])
+        sleeps = []
+        out = make_client(fetch, sleep=sleeps.append).standings(season_id=1)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(sleeps, [7.0])
+
+    def test_retry_after_capped_at_max_wait(self):
+        fetch = MagicMock(side_effect=[http_error(429, 9999), SAMPLE_PAYLOAD])
+        sleeps = []
+        out = make_client(fetch, sleep=sleeps.append).standings(season_id=1)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(sleeps, [MAX_RETRY_WAIT_SECONDS])
+
+    def test_503_retries_exponentially(self):
+        fetch = MagicMock(side_effect=[http_error(503), http_error(503), SAMPLE_PAYLOAD])
+        sleeps = []
+        out = make_client(fetch, sleep=sleeps.append).results(season_id=1, days=3650)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(fetch.call_count, 3)
+        self.assertEqual(sleeps, [2.0, 4.0])
+
+    def test_permanent_http_status_not_retried(self):
+        fetch = MagicMock(side_effect=http_error(404))
+        out = make_client(fetch, sleep=never_sleep).standings(season_id=1)
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_retry_budget_exhausted_surfaces_error(self):
+        fetch = MagicMock(side_effect=http_error(429))
+        cfg = SimRacerHubConfig(max_retries=1, default_season_id=1)
+        out = make_client(fetch, config=cfg, sleep=never_sleep).standings()
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_non_json_body_retried_as_rate_limit(self):
+        fetch = MagicMock(
+            side_effect=[SRHRetryableFetchError("<html>slow down</html>"), SAMPLE_PAYLOAD]
+        )
+        sleeps = []
+        out = make_client(fetch, sleep=sleeps.append).standings(season_id=1)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(sleeps, [2.0])
+
+    def test_unrelated_error_not_retried(self):
+        fetch = MagicMock(side_effect=ValueError("bad"))
+        out = make_client(fetch).standings(season_id=1)
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_cache_collapses_repeat_requests_same_url(self):
+        fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
+        client = make_client(fetch, clock_values=[10.0, 10.0, 11.0])
+        first = client.standings(season_id=1)
+        second = client.results(season_id=1, days=365)
+        self.assertEqual((first["status"], second["status"]), ("ok", "ok"))
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_cache_expires_after_ttl(self):
+        fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
+        cfg = SimRacerHubConfig(default_season_id=1, cache_ttl_seconds=5.0)
+        client = make_client(
+            fetch, config=cfg, clock_values=[0.0, 0.0, 6.0, 6.0], sleep=never_sleep
+        )
+        self.assertEqual(client.standings()["status"], "ok")
+        self.assertEqual(client.results(days=3650)["status"], "ok")
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_zero_ttl_disables_cache(self):
+        fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
+        cfg = SimRacerHubConfig(default_season_id=1, cache_ttl_seconds=0.0)
+        client = make_client(
+            fetch, config=cfg, clock_values=[0.0, 0.0, 1.0, 1.0], sleep=never_sleep
+        )
+        self.assertEqual(client.standings()["status"], "ok")
+        self.assertEqual(client.results(days=3650)["status"], "ok")
+        self.assertEqual(fetch.call_count, 2)
 
 
 class ToolRegistrationTests(unittest.TestCase):

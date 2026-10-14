@@ -60,7 +60,9 @@ leverage, locality) follows the `codebase-design` skill.
   for the three chat tools. **ToolAdapter** names the seam; the adapters are
   `simracershub` (SimRacingHistory HTTP), `web_lookup` (ChromaDB embeddings),
   and `league_memory` (see below). One `ToolFrame.make_embedder()` fixes the
-  per-tool `OPENAI_API_KEY` bug.
+  per-tool `OPENAI_API_KEY` bug. The SRH client self-polices (paced fetches,
+  backoff retries honouring `Retry-After`, short payload-cache TTL) because
+  simracerhub.com aggressively rate-limits automated traffic.
 - **League memory** — per-channel key/value notes the chat agent keeps
   (`league_memory.py` over `modules/memory_store.py`).
 - **Web lookup** — embeddings-backed lookup (`web_lookup.py`, also over

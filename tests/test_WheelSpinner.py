@@ -114,9 +114,7 @@ class TestWheelSpinner(unittest.TestCase):
             outfile.write(file.read())
 
     def test_many_shuffle(self):
-        options = "Henry Morse,Giovanni Romano,Henry Libermann,Scott Fleming4,Jacob Kacik,Kyle Blevins,Alexander Bueler,Jason Lee17,Tyler Agostino,Alex Koffard,Austin Tucker2,Aaron Thacker,Christopher Flamion,Ron Wolfe,Evan Campbell2,Christopher Bright2,Darren Baie,Justin Hall,Todd Madole,Erik Ronnenberg,Tyler Carlton,Alex Marsh King,Greg Beckman,Adam Joseph Mailhot,Brooks Clayton,Ryan Verhulst,Gabriel Adan Gonzalez,Jeremy Castro,Carson Catlin,Ben C Williams,Jordan Babcock,Sebastian Klose,Mathieu Dupuis,Austin Farr,Corey Barrett,Ryan Murphy6,Shane Cameron,Justin Bresee,Blake Gambrell,Anthony Saletta,Landon Lindner,Stefan Pursell,Alexander Klenk,Kyle Smith10,Tyler Vietanen,Tanner Cline,Jon Combs,Brian Bruzzi,Josh Freed".split(
-            ","
-        )
+        options = [f"Fake Racer {n}" for n in range(1, 50)]
         wheel = WheelSpinner.WheelSpinner.create_spindex(options)
         file = wheel.return_gif()
         with open("out.gif", "wb") as outfile:

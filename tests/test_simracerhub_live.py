@@ -10,7 +10,8 @@ Skipped unless ``SIMRACERHUB_LIVE=1`` so the default suite stays offline:
 
     SIMRACERHUB_LIVE=1 .venv\\Scripts\\python -m unittest tests.test_simracerhub_live
 
-Run them well-spaced; the site expects polite traffic.
+The client self-polices (paced fetches, backoff retries, payload cache), so
+a full run is a couple of requests spaced by the configured min interval.
 """
 import os
 import unittest
@@ -24,9 +25,7 @@ LIVE = os.environ.get("SIMRACERHUB_LIVE", "") == "1"
 class LiveSimRacerHubTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        config = SimRacerHubConfig.from_env({})
-        config.min_interval_seconds = 0.0  # back-to-back fetches are fine (3 total)
-        cls.client = SimRacerHubClient(config=config)
+        cls.client = SimRacerHubClient(config=SimRacerHubConfig.from_env({}))
 
     def test_standings_default_season(self):
         out = self.client.standings()
@@ -65,7 +64,11 @@ class LiveSimRacerHubTests(unittest.TestCase):
         )
 
     def test_resolve_driver(self):
-        out = self.client.resolve_driver("Austin Tucker")
+        # Resolve a driver that actually exists on the league sheet instead
+        # of hardcoding anyone's real name into this repo.
+        season = self.client.standings()
+        self.assertEqual(season["status"], "ok", season.get("error"))
+        out = self.client.resolve_driver(season["rows"][0]["name"])
         self.assertEqual(out["status"], "ok", out.get("error"))
         self.assertTrue(out["drivers"])
         self.assertTrue(

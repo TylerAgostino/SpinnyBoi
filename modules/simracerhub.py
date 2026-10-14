@@ -22,12 +22,22 @@ and time-filtered). Everything degrades to ``{"status": ..., ...}`` payloads —
 network errors, malformed payloads, and "no results uploaded yet" never raise,
 so a flaky lookup can't take down a chat reply.
 
+SimRacerHub aggressively rate-limits non-browser traffic, so every request
+goes through one polite path: repeat lookups reuse a short-lived payload
+cache, real fetches wait for their slot instead of being dropped, and
+rate-limit-shaped failures (429/5xx, transient I/O, non-JSON bodies) are
+retried with backoff, honouring ``Retry-After``.
+
+
 Configuration is environment-driven:
 
     SIMRACERHUB_ENABLED              "0"/"false"/"off" disables the feature
     SIMRACERHUB_TIMEOUT_SECONDS      per-request HTTP timeout (default 8)
     SIMRACERHUB_MIN_INTERVAL_SECONDS min seconds between API calls (default 3)
     SIMRACERHUB_MAX_ROWS             max rows per result set (default 15)
+    SIMRACERHUB_CACHE_TTL_SECONDS    reuse fetched payloads this long (default 300; 0 disables)
+    SIMRACERHUB_MAX_RETRIES          retries per fetch on rate-limit-shaped failures (default 2)
+    SIMRACERHUB_RETRY_BASE_SECONDS   first backoff step; doubles per retry (default 2)
     SIMRACERHUB_SEASON_ID            default season id (league default)
     SIMRACERHUB_SERIES_ID            default series id (league default)
 """
@@ -36,6 +46,7 @@ import logging
 import os
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
@@ -51,6 +62,15 @@ log = logging.getLogger(__name__)
 SRH_BASE_URL = "https://www.simracerhub.com/scoring"
 USER_AGENT = "SpinnyBoi-Discord-bot/1.0 (league stats)"
 
+# SRH throttles automated traffic with these statuses (and sometimes an
+# HTML body under 200); they're worth a backed-off retry.
+RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+MAX_RETRY_WAIT_SECONDS = 60.0
+
+
+class SRHRetryableFetchError(Exception):
+    """Fetch failed in a way a retry may fix (e.g. rate-limit HTML body)."""
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -65,6 +85,9 @@ class SimRacerHubConfig:
     max_rows: int = 15
     default_season_id: Optional[int] = None
     default_series_id: Optional[int] = None
+    max_retries: int = 2
+    retry_base_seconds: float = 2.0
+    cache_ttl_seconds: float = 300.0
 
     @classmethod
     def from_env(cls, env: Optional[Dict[str, str]] = None) -> "SimRacerHubConfig":
@@ -82,6 +105,13 @@ class SimRacerHubConfig:
             default_season_id=env_int_or_none(env, "SIMRACERHUB_SEASON_ID")
             or LeagueConfig.from_env(env).srh_season_id,
             default_series_id=env_int_or_none(env, "SIMRACERHUB_SERIES_ID"),
+            max_retries=env_int(env, "SIMRACERHUB_MAX_RETRIES", 2, minimum=0, maximum=5),
+            retry_base_seconds=env_float(
+                env, "SIMRACERHUB_RETRY_BASE_SECONDS", 2.0, 0.1, 30.0
+            ),
+            cache_ttl_seconds=env_float(
+                env, "SIMRACERHUB_CACHE_TTL_SECONDS", 300.0, 0.0, 3600.0
+            ),
         )
 
 
@@ -325,6 +355,26 @@ def build_standings_url(season_id: int, class_id: Optional[int] = None) -> str:
     return f"{SRH_BASE_URL}/get_standings.php?{urllib.parse.urlencode(params)}"
 
 
+def _is_retryable(exc: Exception) -> bool:
+    """Rate-limit-shaped failures: throttled HTTP, transient I/O, junk bodies."""
+    if isinstance(exc, SRHRetryableFetchError):
+        return True
+    if isinstance(exc, urllib.error.HTTPError):  # subclass of URLError: check first
+        return exc.code in RETRYABLE_HTTP_STATUSES
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError))
+
+
+def _retry_delay(exc: Exception, base: float, attempt: int) -> float:
+    """Honour ``Retry-After`` when the site sends it; else exponential backoff."""
+    if isinstance(exc, urllib.error.HTTPError) and exc.headers:
+        try:
+            after = float(exc.headers.get("Retry-After"))
+            return max(0.0, min(after, MAX_RETRY_WAIT_SECONDS))
+        except (TypeError, ValueError):
+            pass  # HTTP-date form or garbage; fall through to backoff
+    return min(base * (2**attempt), MAX_RETRY_WAIT_SECONDS)
+
+
 # ---------------------------------------------------------------------------
 # Client
 # ---------------------------------------------------------------------------
@@ -332,33 +382,69 @@ def build_standings_url(season_id: int, class_id: Optional[int] = None) -> str:
 
 class SimRacerHubClient:
     """Fetch + normalise SimRacerHub scoring data. Never raises out of
-    :meth:`standings`, :meth:`results`, or :meth:`resolve_driver`."""
+    :meth:`standings`, :meth:`results`, or :meth:`resolve_driver`. Talks to
+    the site through one polite path: cached payloads, paced fetches,
+    backed-off retries (SRH aggressively rate-limits automated traffic)."""
 
     def __init__(
         self,
         config: Optional[SimRacerHubConfig] = None,
         fetch_json: Optional[Callable[[str, float], Any]] = None,
         clock: Optional[Callable[[], float]] = None,
+        sleep: Optional[Callable[[float], None]] = None,
     ):
         self.config = config or SimRacerHubConfig.from_env()
         self._fetch_json = fetch_json or _default_fetch_json
         self._clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
         self._last_call: Optional[float] = None
+        self._cache: Dict[str, Any] = {}  # url -> (fetch-start clock time, payload)
 
-    # -- rate limiting ------------------------------------------------------
+    # -- polite fetch path: cache, pacing, retry -----------------------------
 
-    def _rate_limit_ok(self) -> bool:
+    def _pace(self) -> None:
+        """Wait out ``min_interval_seconds`` since the last real fetch."""
         now = self._clock()
-        if (
-            self._last_call is not None
-            and now - self._last_call < self.config.min_interval_seconds
-        ):
-            return False
+        if self._last_call is not None:
+            wait = self._last_call + self.config.min_interval_seconds - now
+            if wait > 0:
+                log.info("simracerhub: pacing, sleeping %.1fs", wait)
+                self._sleep(wait)
+                now = self._clock()
         self._last_call = now
-        return True
 
     def _get(self, url: str) -> Any:
-        return self._fetch_json(url, self.config.timeout_seconds)
+        """Cached + retried fetch. standings/results share one season URL and
+        chat follow-ups repeat it, so the TTL keeps a question to ≤1 request."""
+        ttl = self.config.cache_ttl_seconds
+        now = self._clock()
+        hit = self._cache.get(url)
+        if ttl > 0 and hit is not None and now - hit[0] < ttl:
+            return hit[1]
+        self._pace()
+        payload = self._fetch_with_retry(url)
+        if ttl > 0:
+            self._cache[url] = (now, payload)
+        return payload
+
+    def _fetch_with_retry(self, url: str) -> Any:
+        attempts = max(1, self.config.max_retries + 1)
+        for attempt in range(attempts):
+            try:
+                return self._fetch_json(url, self.config.timeout_seconds)
+            except Exception as exc:  # classified below; degrades like before
+                if attempt + 1 >= attempts or not _is_retryable(exc):
+                    raise
+                delay = _retry_delay(exc, self.config.retry_base_seconds, attempt)
+                log.warning(
+                    "simracerhub fetch failed (attempt %d/%d, %s); retrying in %.1fs",
+                    attempt + 1,
+                    attempts,
+                    exc,
+                    delay,
+                )
+                self._sleep(delay)
+        raise AssertionError("unreachable: last attempt always returns or raises")
 
     # -- public API ----------------------------------------------------------
 
@@ -373,8 +459,6 @@ class SimRacerHubClient:
         season = season_id or self.config.default_season_id
         if not season:
             return {"status": "no_season", "rows": [], "error": "no season_id given and no SIMRACERHUB_SEASON_ID default"}
-        if not self._rate_limit_ok():
-            return {"status": "rate_limited", "rows": []}
         try:
             payload = self._get(build_standings_url(int(season)))
         except Exception:
@@ -402,8 +486,6 @@ class SimRacerHubClient:
         season = season_id or self.config.default_season_id
         if not season:
             return {"status": "no_season", "rows": [], "error": "no season_id given and no SIMRACERHUB_SEASON_ID default"}
-        if not self._rate_limit_ok():
-            return {"status": "rate_limited", "rows": []}
         try:
             payload = self._get(build_standings_url(int(season)))
         except Exception:
@@ -429,8 +511,6 @@ class SimRacerHubClient:
         needle = clean_driver_filter(name)
         if not needle:
             return {"status": "empty_query", "drivers": []}
-        if not self._rate_limit_ok():
-            return {"status": "rate_limited", "drivers": []}
         try:
             payload = self._get(build_suggest_url(needle))
         except Exception:
@@ -464,7 +544,7 @@ class SimRacerHubClient:
             incidents, safety rating, team per driver) or "results" (recent
             individual race finishes: start/finish position, points, incidents,
             rating, team). ``driver`` optionally filters by driver name OR team
-            name (substring, e.g. "Tucker" or "Snack Attack"). ``days`` limits
+            name (substring, e.g. "McFast" or "Test Squad"). ``days`` limits
             "results" to the last N days
             (default 14). ``season_id`` selects a season when there are
             several; omit it to use the league default. Returns compact rows,
@@ -492,7 +572,15 @@ class SimRacerHubClient:
 def _default_fetch_json(url: str, timeout: float) -> Any:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8", "replace"))
+        body = response.read().decode("utf-8", "replace")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        # A rate-limited SRH answers with an HTML teapage under 200; mark it
+        # retryable so the client backs off instead of surfacing "error".
+        raise SRHRetryableFetchError(
+            f"non-JSON response from {url}: {body[:120]!r}"
+        ) from exc
 
 
 _simracerhub: Optional[SimRacerHubClient] = None

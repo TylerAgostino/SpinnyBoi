@@ -57,7 +57,7 @@ SRH_PAYLOAD = {
 
 
 def make_memory(exploding=False):
-    cfg = VectorStoreConfig(channel_id=123, relevance_threshold=0.1)
+    cfg = VectorStoreConfig(channel_ids=(123,), relevance_threshold=0.1)
     memory = LeagueMemory(cfg, embedder=ExplodingEmbedder() if exploding else StubEmbedder())
     if exploding:
         return memory  # left empty on purpose; only the query path is exercised

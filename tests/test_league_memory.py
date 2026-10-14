@@ -1,8 +1,8 @@
 """Unit tests for modules/league_memory (config, chunking, indexing, query).
 
 No Discord connection or embedding server is required: embeddings come from a
-deterministic fake embedder and the channel is a MagicMock with an async
-history iterator.
+deterministic fake embedder and channels are MagicMocks with async history
+iterators.
 
 Run: .venv\\Scripts\\python -m unittest tests.test_league_memory
 """
@@ -45,7 +45,7 @@ def make_channel_messages(specs):
     return messages
 
 
-def make_bot(channel_messages, channel_id=123):
+def make_channel(channel_messages):
     class HistIter:
         def __init__(self, items):
             self.items = items
@@ -60,9 +60,15 @@ def make_bot(channel_messages, channel_id=123):
 
     channel = MagicMock()
     channel.history = MagicMock(return_value=HistIter(make_channel_messages(channel_messages)))
+    return channel
+
+
+def make_bot(channels):
+    """``channels`` maps channel id -> [(content, name), ...]; unknown ids resolve to None."""
+    by_id = {channel_id: make_channel(msgs) for channel_id, msgs in channels.items()}
     bot = MagicMock()
-    bot.get_channel = MagicMock(return_value=channel)
-    bot.fetch_channel = AsyncMock(return_value=channel)
+    bot.get_channel = MagicMock(side_effect=lambda channel_id: by_id.get(channel_id))
+    bot.fetch_channel = AsyncMock(side_effect=lambda channel_id: by_id.get(channel_id))
     return bot
 
 
@@ -74,7 +80,7 @@ def make_bot(channel_messages, channel_id=123):
 class ConfigTests(unittest.TestCase):
     def test_defaults_when_unset(self):
         cfg = lm.VectorStoreConfig.from_env(env={})
-        self.assertIsNone(cfg.channel_id)
+        self.assertEqual(cfg.channel_ids, ())
         self.assertFalse(cfg.enabled)
         self.assertEqual(cfg.embedding_provider, "ollama")
         self.assertEqual(cfg.top_k, 5)
@@ -91,13 +97,20 @@ class ConfigTests(unittest.TestCase):
                 "LEAGUE_VECTOR_RELEVANCE_THRESHOLD": "0.5",
             }
         )
-        self.assertEqual(cfg.channel_id, 987654321)
+        self.assertEqual(cfg.channel_ids, (987654321,))
         self.assertTrue(cfg.enabled)
         self.assertEqual(cfg.embedding_provider, "openai")
         self.assertEqual(cfg.resolved_model, "text-embedding-3-large")
         self.assertEqual(cfg.resolved_base_url, "http://example/v1")
         self.assertEqual(cfg.top_k, 3)
         self.assertEqual(cfg.relevance_threshold, 0.5)
+
+    def test_channel_ids_accept_comma_separated_list(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={"LEAGUE_VECTOR_CHANNEL_ID": "111, 222,111,not-an-id,-3,"}
+        )
+        self.assertEqual(cfg.channel_ids, (111, 222))
+        self.assertTrue(cfg.enabled)
 
     def test_provider_defaults_per_provider(self):
         self.assertEqual(
@@ -118,7 +131,7 @@ class ConfigTests(unittest.TestCase):
                 "LEAGUE_VECTOR_RELEVANCE_THRESHOLD": "abc",
             }
         )
-        self.assertIsNone(cfg.channel_id)
+        self.assertEqual(cfg.channel_ids, ())
         self.assertEqual(cfg.embedding_provider, "ollama")
         self.assertEqual(cfg.top_k, 1)  # -4 below minimum; clamped up to 1
         self.assertEqual(cfg.relevance_threshold, 0.35)
@@ -213,32 +226,32 @@ class VectorStoreTests(unittest.TestCase):
 
 
 class IndexingTests(unittest.IsolatedAsyncioTestCase):
-    async def test_index_channel_populates_store(self):
-        cfg = lm.VectorStoreConfig(channel_id=123, max_chunk_chars=700)
+    async def test_index_channels_populates_store(self):
+        cfg = lm.VectorStoreConfig(channel_ids=(123,), max_chunk_chars=700)
         mem = lm.LeagueMemory(cfg, embedder=StubEmbedder())
         bot = make_bot(
-            [("session tonight at 8", "tyler"), ("rules updated", "mod")]
+            {123: [("session tonight at 8", "tyler"), ("rules updated", "mod")]}
         )
-        n = await mem.index_channel(bot)
+        n = await mem.index_channels(bot)
         self.assertEqual(n, 2)
         self.assertTrue(mem.indexed)
         self.assertFalse(mem.indexing)
 
-    async def test_disabled_without_channel_id(self):
+    async def test_disabled_without_channel_ids(self):
         mem = lm.LeagueMemory(lm.VectorStoreConfig(), embedder=StubEmbedder())
-        self.assertEqual(await mem.index_channel(MagicMock()), 0)
+        self.assertEqual(await mem.index_channels(MagicMock()), 0)
         self.assertIsNone(mem.start_indexing(MagicMock()))
 
     async def test_index_failure_never_raises(self):
-        cfg = lm.VectorStoreConfig(channel_id=123)
+        cfg = lm.VectorStoreConfig(channel_ids=(123,))
         mem = lm.LeagueMemory(cfg, embedder=StubEmbedder())
         bot = MagicMock()
         bot.get_channel = MagicMock(side_effect=RuntimeError("boom"))
-        self.assertEqual(await mem.index_channel(bot), 0)
+        self.assertEqual(await mem.index_channels(bot), 0)
         self.assertFalse(mem.indexed)
 
     async def test_start_indexing_does_not_block(self):
-        cfg = lm.VectorStoreConfig(channel_id=123)
+        cfg = lm.VectorStoreConfig(channel_ids=(123,))
         gate = threading.Event()
 
         class SlowEmbedder(StubEmbedder):
@@ -246,7 +259,7 @@ class IndexingTests(unittest.IsolatedAsyncioTestCase):
                 gate.wait()  # runs in a worker thread; parks here until set
                 return super().embed(texts)
 
-        bot = make_bot([("announcement race times", "mod")])
+        bot = make_bot({123: [("announcement race times", "mod")]})
         mem = lm.LeagueMemory(cfg, embedder=SlowEmbedder())
         task = mem.start_indexing(bot)
         self.assertIsNotNone(task)
@@ -259,10 +272,32 @@ class IndexingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_empty_channel_indexes_nothing(self):
         mem = lm.LeagueMemory(
-            lm.VectorStoreConfig(channel_id=123), embedder=StubEmbedder()
+            lm.VectorStoreConfig(channel_ids=(123,)), embedder=StubEmbedder()
         )
-        self.assertEqual(await mem.index_channel(make_bot([])), 0)
+        self.assertEqual(await mem.index_channels(make_bot({123: []})), 0)
 
+
+    async def test_index_channels_reads_every_configured_channel(self):
+        cfg = lm.VectorStoreConfig(channel_ids=(111, 222))
+        mem = lm.LeagueMemory(cfg, embedder=StubEmbedder())
+        bot = make_bot(
+            {
+                111: [("the session is tonight", "tyler")],
+                222: [("rules for registration", "mod")],
+            }
+        )
+        self.assertEqual(await mem.index_channels(bot), 2)
+        self.assertTrue(mem.indexed)
+        hits = {mem.query("session")[0][2]["channel_id"], mem.query("rules")[0][2]["channel_id"]}
+        self.assertEqual(hits, {111, 222})
+
+    async def test_one_bad_channel_does_not_block_the_others(self):
+        cfg = lm.VectorStoreConfig(channel_ids=(111, 404))
+        mem = lm.LeagueMemory(cfg, embedder=StubEmbedder())
+        bot = make_bot({111: [("announcement race times", "mod")]})  # 404 missing
+        self.assertEqual(await mem.index_channels(bot), 1)
+        self.assertFalse(mem.indexed)  # 404 never resolved; retry on next startup
+        self.assertTrue(mem.query("race times"))
 
 # ---------------------------------------------------------------------------
 # LeagueMemory.query + tool surface
@@ -272,11 +307,11 @@ class IndexingTests(unittest.IsolatedAsyncioTestCase):
 class QueryAndToolTests(unittest.IsolatedAsyncioTestCase):
     async def _memory_with_index(self):
         mem = lm.LeagueMemory(
-            lm.VectorStoreConfig(channel_id=123, top_k=2, relevance_threshold=0.5),
+            lm.VectorStoreConfig(channel_ids=(123,), top_k=2, relevance_threshold=0.5),
             embedder=StubEmbedder(),
         )
-        await mem.index_channel(
-            make_bot([("the session is tonight", "tyler"), ("rules for registration", "mod")])
+        await mem.index_channels(
+            make_bot({123: [("the session is tonight", "tyler"), ("rules for registration", "mod")]})
         )
         return mem
 

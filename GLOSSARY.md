@@ -63,8 +63,9 @@ leverage, locality) follows the `codebase-design` skill.
   per-tool `OPENAI_API_KEY` bug. The SRH client self-polices (paced fetches,
   backoff retries honouring `Retry-After`, short payload-cache TTL) because
   simracerhub.com aggressively rate-limits automated traffic.
-- **League memory** — per-channel key/value notes the chat agent keeps
-  (`league_memory.py` over `modules/memory_store.py`).
+- **League memory** — in-memory vector store over the channels listed in
+  `LEAGUE_VECTOR_CHANNEL_ID` (comma-separated), indexed at startup and
+  queried by the chat agent (`league_memory.py`).
 - **Web lookup** — embeddings-backed lookup (`web_lookup.py`, also over
   **memory_store**).
 

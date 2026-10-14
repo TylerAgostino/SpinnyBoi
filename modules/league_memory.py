@@ -1,14 +1,14 @@
 # pyright: basic
-"""League memory: an in-memory vector store over one Discord channel.
+"""League memory: an in-memory vector store over configured Discord channels.
 
-At startup the bot reads all messages from a configured channel, chunks and
+At startup the bot reads all messages from the configured channels, chunks and
 embeds them, and exposes a strands tool the ChatHandler agent can call for
 administrative questions (session times, rules, announcements).
 
 Configuration is environment-driven (see ``VectorStoreConfig.from_env``):
 
-    LEAGUE_VECTOR_CHANNEL_ID            Discord channel id to index (feature is
-                                        disabled when unset/invalid)
+    LEAGUE_VECTOR_CHANNEL_ID            comma-separated Discord channel ids to
+                                        index (feature disabled when unset/invalid)
     LEAGUE_VECTOR_EMBEDDING_PROVIDER    "ollama" (default) or "openai"
     LEAGUE_VECTOR_EMBEDDING_MODEL       embedding model id (provider default if unset)
     LEAGUE_VECTOR_EMBEDDING_BASE_URL    OpenAI-compatible base URL override
@@ -44,10 +44,29 @@ PROVIDER_MODELS = {
 # Configuration
 # ---------------------------------------------------------------------------
 
+def _parse_channel_ids(raw: Optional[str]) -> Tuple[int, ...]:
+    """Parse a comma-separated list of positive channel ids, skipping bad entries."""
+    ids: List[int] = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = int(part)
+        except ValueError:
+            log.warning("Invalid LEAGUE_VECTOR_CHANNEL_ID entry=%r, skipping", part)
+            continue
+        if value <= 0:
+            log.warning("Ignoring non-positive LEAGUE_VECTOR_CHANNEL_ID entry=%r", part)
+            continue
+        if value not in ids:
+            ids.append(value)
+    return tuple(ids)
+
 
 @dataclass
 class VectorStoreConfig:
-    channel_id: Optional[int] = None
+    channel_ids: Tuple[int, ...] = ()
     embedding_provider: str = "ollama"
     embedding_model: Optional[str] = None
     embedding_base_url: Optional[str] = None
@@ -57,7 +76,7 @@ class VectorStoreConfig:
 
     @property
     def enabled(self) -> bool:
-        return self.channel_id is not None
+        return bool(self.channel_ids)
 
     @property
     def resolved_model(self) -> str:
@@ -77,19 +96,6 @@ class VectorStoreConfig:
     def from_env(cls, env: Optional[Dict[str, str]] = None) -> "VectorStoreConfig":
         env = os.environ if env is None else env
 
-        channel_id: Optional[int] = None
-        raw_channel = (env.get("LEAGUE_VECTOR_CHANNEL_ID") or "").strip()
-        if raw_channel:
-            try:
-                channel_id = int(raw_channel)
-                if channel_id <= 0:
-                    log.warning(
-                        "Ignoring non-positive LEAGUE_VECTOR_CHANNEL_ID=%r", raw_channel
-                    )
-                    channel_id = None
-            except ValueError:
-                log.warning("Invalid LEAGUE_VECTOR_CHANNEL_ID=%r", raw_channel)
-
         provider = (env.get("LEAGUE_VECTOR_EMBEDDING_PROVIDER") or "ollama").strip().lower()
         if provider not in PROVIDER_MODELS:
             log.warning(
@@ -103,7 +109,7 @@ class VectorStoreConfig:
         max_chunk = env_int(env, "LEAGUE_VECTOR_MAX_CHUNK_CHARS", 700, minimum=50)
 
         return cls(
-            channel_id=channel_id,
+            channel_ids=_parse_channel_ids(env.get("LEAGUE_VECTOR_CHANNEL_ID")),
             embedding_provider=provider,
             embedding_model=(env.get("LEAGUE_VECTOR_EMBEDDING_MODEL") or None),
             embedding_base_url=(env.get("LEAGUE_VECTOR_EMBEDDING_BASE_URL") or None),
@@ -316,69 +322,87 @@ class LeagueMemory:
             self._embedder = make_embedder(self.config)
         return self._embedder
 
-    async def index_channel(self, bot_user) -> int:
-        """Read every message in the configured channel and embed it.
+    async def index_channels(self, bot_user) -> int:
+        """Read every message in the configured channels and embed them.
 
-        ``bot_user`` is the discord.py Bot/User. Returns the number of chunks
-        indexed. Errors are logged, not raised, so a failed index never takes
-        the bot down (queries simply return no results until re-indexed).
+        ``bot_user`` is the discord.py Bot/User. Returns the total number of
+        chunks indexed. Errors are logged, not raised, so one bad channel
+        never takes the bot down or blocks the others (queries simply return
+        what was indexed until re-indexed).
         """
         if not self.config.enabled:
-            log.info("League memory disabled (no channel id configured)")
+            log.info("League memory disabled (no channel ids configured)")
             return 0
 
         self._indexing = True
+        total_messages = 0
+        failures = 0
         try:
-            channel_id = int(self.config.channel_id)  # type: ignore[arg-type]
-            try:
-                channel = bot_user.get_channel(channel_id)
-                if channel is None:
-                    channel = await bot_user.fetch_channel(channel_id)
-            except Exception:
-                log.exception("League memory: channel %s not found", channel_id)
-                return 0
-
-            messages: List[Tuple[str, str, str]] = []
-            async for m in channel.history(limit=None):
-                if not m.content or not m.content.strip():
+            for channel_id in self.config.channel_ids:
+                try:
+                    channel = bot_user.get_channel(channel_id)
+                    if channel is None:
+                        channel = await bot_user.fetch_channel(channel_id)
+                    if channel is None:
+                        raise LookupError("channel not found")
+                    messages = await self._collect_messages(channel)
+                except Exception:
+                    failures += 1
+                    log.exception("League memory: channel %s failed", channel_id)
                     continue
-                author = m.author.nick if getattr(m.author, "nick", None) else m.author.name
-                messages.append(
-                    (author, m.created_at.strftime("%Y-%m-%d %H:%M"), m.content)
+
+                total_messages += len(messages)
+                chunks = chunk_messages(messages, self.config.max_chunk_chars)
+                for _, meta in chunks:
+                    meta["channel_id"] = channel_id
+                if not chunks:
+                    log.info(
+                        "League memory: no indexable messages in channel %s", channel_id
+                    )
+                    continue
+
+                embedder = self._get_embedder()
+                vectors = await asyncio.to_thread(
+                    _embed_batches, embedder, [c for c, _ in chunks]
+                )
+                self.store.add(
+                    [(text, vec, meta) for (text, meta), vec in zip(chunks, vectors)]
                 )
 
-            chunks = chunk_messages(messages, self.config.max_chunk_chars)
-            if not chunks:
-                log.info("League memory: no indexable messages in channel %s", channel_id)
+            if failures == 0:
                 self._indexed = True
-                return 0
-
-            embedder = self._get_embedder()
-            vectors = await asyncio.to_thread(
-                _embed_batches, embedder, [c for c, _ in chunks]
-            )
-            self.store.add(
-                [(text, vec, meta) for (text, meta), vec in zip(chunks, vectors)]
-            )
-            self._indexed = True
             log.info(
-                "League memory: indexed %d chunks from %d messages in channel %s",
+                "League memory: indexed %d chunks from %d messages across %d "
+                "channel(s) (%d failed)",
                 self.store.size,
-                len(messages),
-                channel_id,
+                total_messages,
+                len(self.config.channel_ids),
+                failures,
             )
             return self.store.size
         except Exception:
             log.exception("League memory indexing failed")
-            return 0
+            return self.store.size
         finally:
             self._indexing = False
 
+    async def _collect_messages(self, channel) -> List[Tuple[str, str, str]]:
+        """Pull ``(author, timestamp, content)`` triples from one channel."""
+        messages: List[Tuple[str, str, str]] = []
+        async for m in channel.history(limit=None):
+            if not m.content or not m.content.strip():
+                continue
+            author = m.author.nick if getattr(m.author, "nick", None) else m.author.name
+            messages.append(
+                (author, m.created_at.strftime("%Y-%m-%d %H:%M"), m.content)
+            )
+        return messages
+
     def start_indexing(self, bot_user) -> Optional[asyncio.Task]:
-        """Kick off channel indexing as a background task (never blocks callers)."""
+        """Kick off indexing of all configured channels (never blocks callers)."""
         if not self.config.enabled:
             return None
-        self._task = asyncio.create_task(self.index_channel(bot_user))
+        self._task = asyncio.create_task(self.index_channels(bot_user))
         return self._task
 
     def query(self, question: str) -> List[Tuple[float, str, Dict[str, Any]]]:

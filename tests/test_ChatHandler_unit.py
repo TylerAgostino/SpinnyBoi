@@ -8,6 +8,7 @@ Run: python -m unittest tests.test_ChatHandler_unit
 """
 import datetime
 import json
+import os
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -36,13 +37,24 @@ def fake_agent(reply_texts):
     return agent
 
 
-def make_discord_message(content="hello", nick="tyler", name="tyler_l"):
+
+def make_attachment(content_type="image/png", data=b"PNGBYTES", size=None):
+    a = MagicMock()
+    a.content_type = content_type
+    a.filename = "shot.png"
+    a.size = len(data) if size is None else size
+    a.read = AsyncMock(return_value=data)
+    return a
+
+
+def make_discord_message(content="hello", nick="tyler", name="tyler_l", attachments=None):
     m = MagicMock()
     m.author.nick = nick
     m.author.name = name
     m.author.id = 123
     m.content = content
     m.created_at = datetime.datetime(2026, 1, 2, 3, 4, 5)
+    m.attachments = list(attachments or [])
     return m
 
 
@@ -261,12 +273,141 @@ class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
         history = make_agent.call_args.args[2]
         self.assertEqual(len(history), 1)
 
+    async def test_agent_failures_without_images_burn_attempts(self):
+        agent = MagicMock()
+        agent.invoke_async = AsyncMock(side_effect=RuntimeError("model down"))
+        trigger = make_discord_message("hey")
+        bot = make_bot_user([])
+        with patch.object(ChatHandler, "_make_agent", return_value=agent):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "")
+        self.assertEqual(agent.invoke_async.await_count, 3)
+
     def test_make_agent_copies_history_list(self):
         history = [{"role": "user", "content": [{"text": "hi"}]}]
         agent = ChatHandler._make_agent(MagicMock(), "sys", history)
         self.assertIsNot(agent.messages, history)
         agent.messages.append({"role": "user", "content": [{"text": "trigger"}]})
         self.assertEqual(len(history), 1)
+
+
+class AttachmentBlockTests(unittest.IsolatedAsyncioTestCase):
+    async def test_non_image_and_oversize_skipped_without_download(self):
+        pdf = make_attachment(content_type="application/pdf")
+        big = make_attachment(size=ChatHandler.MAX_VISION_IMAGE_BYTES + 1)
+        self.assertIsNone(await ChatHandler._attachment_image_block(pdf))
+        self.assertIsNone(await ChatHandler._attachment_image_block(big))
+        pdf.read.assert_not_called()
+        big.read.assert_not_called()
+
+    async def test_gif_maps_to_gif_format(self):
+        gif = make_attachment(content_type="image/gif", data=b"GIF89a")
+        block = await ChatHandler._attachment_image_block(gif)
+        self.assertEqual(block["image"]["format"], "gif")
+        self.assertEqual(block["image"]["source"]["bytes"], b"GIF89a")
+
+    async def test_webp_attachment_formats_as_data_image_webp(self):
+        # regression for the live 400: ChatHandler registers .webp explicitly,
+        # so the real strands OpenAI formatter must emit a data:image/webp URL
+        # instead of the octet-stream fallback llama.cpp rejects
+        from strands.models.openai import OpenAIModel
+
+        webp = make_attachment(content_type="image/webp", data=b"RIFF\x00\x00\x00WEBP")
+        block = await ChatHandler._attachment_image_block(webp)
+        self.assertIsNotNone(block, ".webp must be a registered mime")
+        formatted = OpenAIModel.format_request_message_content(block)
+        url = formatted["image_url"]["url"]
+        self.assertTrue(url.startswith("data:image/webp;base64,"))
+        self.assertTrue(url.split(",", 1)[1], "base64 payload must not be empty")
+
+    async def test_download_failure_yields_none(self):
+        bad = make_attachment()
+        bad.read = AsyncMock(side_effect=RuntimeError("cdn down"))
+        self.assertIsNone(await ChatHandler._attachment_image_block(bad))
+
+    async def test_format_without_resolvable_mime_is_skipped(self):
+        # the OpenAI adapter derives the data-URL mime from mimetypes.types_map;
+        # a format it misses must never ship as an octet-stream data URL (llama.cpp
+        # answers those with 400 Invalid uri format)
+        gif = make_attachment(content_type="image/gif", data=b"GIF89a")
+        with patch.dict("mimetypes.types_map", {".gif": None}):
+            self.assertIsNone(await ChatHandler._attachment_image_block(gif))
+        gif.read.assert_not_called()
+
+class VisionPassThroughTests(unittest.IsolatedAsyncioTestCase):
+    async def _run(self, history_msgs, trigger_attachments, env=None):
+        agent = fake_agent(['{"user": "SpinnyBoi", "content": "nice shot"}'])
+        trigger = make_discord_message("look at this", attachments=trigger_attachments)
+        bot = make_bot_user(history_msgs)
+        with patch.dict(os.environ, env or {}, clear=False), \
+             patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "nice shot")
+        return agent, make_agent
+
+    @staticmethod
+    def _images(blocks):
+        return [b["image"] for b in blocks if isinstance(b, dict) and "image" in b]
+
+    async def test_history_and_trigger_images_reach_the_model(self):
+        history = [make_discord_message("before pic", attachments=[make_attachment(data=b"HIST")])]
+        agent, make_agent = await self._run(history, [make_attachment(data=b"TRIG")])
+        entry = make_agent.call_args.args[2][0]
+        images = self._images(entry["content"])
+        self.assertEqual([img["source"]["bytes"] for img in images], [b"HIST"])
+        self.assertEqual(images[0]["format"], "png")
+        prompt = agent.invoke_async.call_args.args[0]
+        self.assertIsInstance(prompt, list)
+        self.assertIn("look at this", prompt[0]["text"])
+        self.assertEqual([img["source"]["bytes"] for img in self._images(prompt)], [b"TRIG"])
+
+    async def test_text_only_trigger_stays_a_string_prompt(self):
+        agent, _ = await self._run([], [])
+        self.assertIsInstance(agent.invoke_async.call_args.args[0], str)
+
+    async def test_vision_disabled_skips_attachments(self):
+        hist_att = make_attachment()
+        history = [make_discord_message("pic", attachments=[hist_att])]
+        agent, make_agent = await self._run(
+            history, [make_attachment()], env={"CHAT_VISION_ENABLED": "off"}
+        )
+        entry = make_agent.call_args.args[2][0]
+        self.assertEqual(self._images(entry["content"]), [])
+        self.assertIsInstance(agent.invoke_async.call_args.args[0], str)
+        hist_att.read.assert_not_called()
+
+    async def test_only_the_newest_images_are_downloaded(self):
+        atts = [make_attachment(data=bytes([i])) for i in range(6)]
+        await self._run([], atts)
+        downloaded = [a for a in atts if a.read.await_count]
+        self.assertEqual(len(downloaded), ChatHandler.MAX_VISION_IMAGES)
+        self.assertEqual(atts[0].read.await_count, 0)
+
+    async def test_image_rejection_degrades_the_turn_to_text_only(self):
+        bad = MagicMock()
+        bad.invoke_async = AsyncMock(side_effect=RuntimeError("400 Invalid uri format"))
+        good = fake_agent(['{"user": "SpinnyBoi", "content": "text worked"}'])
+        history = [make_discord_message("pic", attachments=[make_attachment(data=b"HIST")])]
+        trigger = make_discord_message("look at this", attachments=[make_attachment(data=b"TRIG")])
+        bot = make_bot_user(history)
+        with patch.object(ChatHandler, "_make_agent", side_effect=[bad, good]) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "text worked")
+        self.assertEqual(make_agent.call_count, 2)
+        first = make_agent.call_args_list[0].args[2]
+        second = make_agent.call_args_list[1].args[2]
+        self.assertTrue(any(any("image" in b for b in e["content"]) for e in first))
+        self.assertFalse(any(any("image" in b for b in e["content"]) for e in second))
+        # a rebuilt text-only turn gets the plain trigger, not the reformat
+        # directive - an image failure is not a format failure
+        self.assertIsInstance(good.invoke_async.call_args.args[0], str)
+        self.assertNotIn("rejected", good.invoke_async.call_args.args[0])
 
 class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_text(self):

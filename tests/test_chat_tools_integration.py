@@ -94,6 +94,7 @@ def make_discord_message(content="hello"):
     m.author.id = 123
     m.content = content
     m.created_at = datetime.datetime(2026, 1, 2, 3, 4, 5)
+    m.attachments = []
     return m
 
 

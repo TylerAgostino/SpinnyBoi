@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import mimetypes
 import os
 import random
 from typing import Optional, Tuple
@@ -12,6 +13,7 @@ from strands.models.openai import OpenAIModel
 from modules.league_memory import get_league_memory
 from modules.simracerhub import get_simracerhub
 from modules.web_lookup import get_web_lookup
+from modules.env_config import env_enabled
 
 # LLM endpoint/model: env-overridable, defaults to the home Ollama box.
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.152:11080/v1")
@@ -151,6 +153,83 @@ RETRY_FORMAT_DIRECTIVE = (
     "same answer, no prose before or after, no code fences, no thinking text."
 )
 
+
+# Vision support: image/GIF attachments from recent channel messages (and
+# the triggering message) are handed to the model as strands image content
+# blocks, which the OpenAI-compatible adapter sends as image_url data URLs.
+# Set CHAT_VISION_ENABLED=0/false/off for a model that cannot see; animated
+# GIFs go through as-is and whether they animate is the server's business.
+MAX_VISION_IMAGES = 4
+MAX_VISION_IMAGE_BYTES = 8 * 1024 * 1024
+VISION_CONTENT_TYPES = {
+    "image/png": "png",
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpeg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+
+# The strands OpenAI adapter resolves the image data-URL mime from
+# mimetypes.types_map at send time, and stock CPython has no .webp entry -
+# the lookup silently falls back to application/octet-stream and llama.cpp
+# 400s ("Invalid uri format", echoing only the data-URI prefix). Register
+# every format we send so the adapter can never guess octet-stream.
+for _mime, _suffix in (
+    ("image/png", ".png"),
+    ("image/jpeg", ".jpeg"),
+    ("image/gif", ".gif"),
+    ("image/webp", ".webp"),
+):
+    if mimetypes.types_map.get(_suffix) is None:
+        mimetypes.add_type(_mime, _suffix)
+
+
+def _vision_enabled() -> bool:
+    return env_enabled(os.environ, "CHAT_VISION_ENABLED")
+
+
+async def _attachment_image_block(attachment):
+    """Download one Discord attachment as a strands image block.
+
+    Returns None for non-images, formats with no registered mime (see the
+    add_type block above; kept as a last-line guard), oversized files
+    (skipped without download), and failed downloads - one bad attachment
+    never sinks the turn."""
+    fmt = VISION_CONTENT_TYPES.get(attachment.content_type or "")
+    if fmt and mimetypes.types_map.get(f".{fmt}") is None:
+        fmt = None
+    if not fmt or attachment.size > MAX_VISION_IMAGE_BYTES:
+        return None
+    try:
+        data = await attachment.read()
+    except Exception:
+        logging.warning(
+            "chat image download failed (%s); skipping",
+            getattr(attachment, "filename", "?"),
+        )
+        return None
+    if not data or len(data) > MAX_VISION_IMAGE_BYTES:
+        return None
+    return {"image": {"format": fmt, "source": {"bytes": data}}}
+
+
+def _strip_image_blocks(messages):
+    """Copies of `messages` with image content blocks removed (used when the
+    inference server rejected the image payload mid-turn)."""
+    stripped = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list) and any(
+            isinstance(b, dict) and "image" in b for b in content
+        ):
+            m = {
+                **m,
+                "content": [b for b in content if not (isinstance(b, dict) and "image" in b)],
+            }
+        stripped.append(m)
+    return stripped
+
+
 def _enabled_tools():
     """Collect the chat tools whose adapters are configured.
 
@@ -174,34 +253,42 @@ async def respond_in_chat(message, bot_user, model=None):
     """One chat turn: rebuild channel history, ask the model, parse the reply.
 
     `model` overrides the default chat model (tests inject a double).
+    Image/GIF attachments on recent channel messages and the trigger ride
+    along as image content blocks when vision is enabled.
     Never raises for a bad reply: after three unparsable attempts the last
-    transformed raw string is returned. A retry continues the SAME agent
-    conversation with a reformat directive - the model sees its own bad
-    reply and the tool results stay in context, instead of the whole agent
-    (including another tool call cycle) being rebuilt from scratch."""
+    transformed raw string is returned ("" if the model never answered).
+    A retry continues the SAME agent conversation with a reformat directive -
+    the model sees its own bad reply and the tool results stay in context,
+    instead of the whole agent (including another tool call cycle) being
+    rebuilt from scratch. If the inference server rejects an image payload,
+    the turn degrades once to a rebuilt text-only conversation."""
     channel = await bot_user.fetch_channel(message.channel.id)
     history = [m async for m in channel.history(limit=100, before=message)]
     history.reverse()
+    include_images = _vision_enabled()
     past_chat_messages = []
+    image_targets = []  # oldest -> newest: (attachment, content list to fill)
     for m in history:
         try:
-            past_chat_messages.append(
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "text": json.dumps(
-                                {
-                                    "user": m.author.nick if m.author.nick else m.author.name,
-                                    "user_id": m.author.id,
-                                    "content": m.content,
-                                    "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                                }
-                            )
-                        }
-                    ],
-                }
-            )
+            entry = {
+                "role": "user",
+                "content": [
+                    {
+                        "text": json.dumps(
+                            {
+                                "user": m.author.nick if m.author.nick else m.author.name,
+                                "user_id": m.author.id,
+                                "content": m.content,
+                                "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                            }
+                        )
+                    }
+                ],
+            }
+            past_chat_messages.append(entry)
+            if include_images:
+                for a in m.attachments:
+                    image_targets.append((a, entry["content"]))
         except:
             pass
 
@@ -213,13 +300,26 @@ async def respond_in_chat(message, bot_user, model=None):
             "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         }
     )
+    trigger_blocks = [{"text": trigger}]
+    if include_images:
+        for a in message.attachments:
+            image_targets.append((a, trigger_blocks))
+    # newest attachments win when there are more than the per-turn cap
+    image_blocks_added = 0
+    for attachment, content_list in image_targets[-MAX_VISION_IMAGES:]:
+        block = await _attachment_image_block(attachment)
+        if block is not None:
+            content_list.append(block)
+            image_blocks_added += 1
 
     tools = _enabled_tools()
     agent = None
-    prompt = trigger
+    prompt = trigger_blocks if len(trigger_blocks) > 1 else trigger
     x = 0
     r = None
     msg = None
+    images_in_turn = image_blocks_added > 0
+    degraded_to_text = False
     while x < 3 and r is None:
         if agent is None:
             agent = _make_agent(
@@ -230,13 +330,28 @@ async def respond_in_chat(message, bot_user, model=None):
                 "chat reply %d was not parseable JSON; asking the model to reformat", x
             )
             prompt = RETRY_FORMAT_DIRECTIVE
-        response = await agent.invoke_async(prompt)
-        msg, r = _parse_chat_reply(_extract_text(response))
+        try:
+            response = await agent.invoke_async(prompt)
+            raw_text = _extract_text(response)
+        except Exception:
+            logging.exception("chat agent invocation failed (attempt %d)", x + 1)
+            if images_in_turn and not degraded_to_text:
+                # likely the server choking on the image payload (e.g. llama.cpp
+                # 400s on data URLs it cannot sniff): rebuild text-only once,
+                # free of charge - a still answer beats a silent bot
+                logging.warning("degrading chat turn to text-only after image failure")
+                degraded_to_text = True
+                past_chat_messages = _strip_image_blocks(past_chat_messages)
+                agent = None
+                prompt = trigger
+                continue
+            x += 1  # a model/server failure burns an attempt too
+            continue
+        msg, r = _parse_chat_reply(raw_text)
         x += 1  # Increment counter to avoid infinite loop
-    if r is None:
-        return msg
-    else:
+    if r is not None:
         return r
+    return msg if isinstance(msg, str) else ""
 
 
 # Canned status lines matching the LLM's prompt style; used when the LLM

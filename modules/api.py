@@ -6,6 +6,8 @@ authenticate, retrieve session data, and validate sessions against expectations.
 """
 
 import base64
+import logging
+import os
 import hashlib
 from time import time
 from typing import Any, Optional, cast
@@ -345,3 +347,33 @@ class iRacingAPIHandler(requests.Session):
             return response.get("pending_requests", [])
         else:
             return response.get("roster", [])
+
+
+def iracing_handler_from_env() -> Optional["iRacingAPIHandler"]:
+    """Build an authenticated handler from IRACING_EMAIL/IRACING_PASSWORD/
+    IRACING_CLIENT_ID/IRACING_CLIENT_SECRET. Returns None (and logs why) when
+    credentials are incomplete or login fails; never raises."""
+    email = os.getenv("IRACING_EMAIL")
+    password = os.getenv("IRACING_PASSWORD")
+    client_id = os.getenv("IRACING_CLIENT_ID")
+    client_secret = os.getenv("IRACING_CLIENT_SECRET")
+    if not (email and password and client_id and client_secret):
+        logging.warning(
+            "iRacing API credentials not fully configured. "
+            "Set IRACING_EMAIL, IRACING_PASSWORD, IRACING_CLIENT_ID, "
+            "and IRACING_CLIENT_SECRET."
+        )
+        return None
+    try:
+        handler = iRacingAPIHandler(
+            email=email,
+            password=password,
+            client_id=client_id,
+            client_secret=client_secret,
+            use_oauth=True,
+        )
+        logging.info("iRacing API handler initialized successfully")
+        return handler
+    except Exception as ex:
+        logging.error(f"Failed to initialize iRacing API handler: {ex}")
+        return None

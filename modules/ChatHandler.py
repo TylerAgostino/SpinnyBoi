@@ -2,76 +2,140 @@
 import asyncio
 import json
 import logging
+import mimetypes
+import os
 import random
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
-import discord
-from langchain_core.messages import HumanMessage, SystemMessage, trim_messages
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-from langsmith import traceable
+from strands import Agent
+from strands.models.openai import OpenAIModel
 
-chat_ollama = ChatOpenAI(
-    base_url="http://192.168.1.152:11080",
-    # model="deepseek-r1:14b",
-    model="unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS",
-    # model="gemma3:1b",
-    # model="mistral:7b-instruct",
-    temperature=0.3,
-)
+from modules.league_memory import get_league_memory
+from modules.simracerhub import get_simracerhub
+from modules.web_lookup import get_web_lookup
+from modules.env_config import env_enabled
 
-chat_ollama_low_temp = ChatOpenAI(
-    base_url="http://192.168.1.152:11080",
-    # model="deepseek-r1:14b",
-    model="unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS",
-    # model="gemma3:1b",
-    # model="mistral:7b-instruct",
-    temperature=0.2,
-)
-chat_ollama_fast = ChatOpenAI(
-    base_url="http://192.168.1.152:11080",
-    # model="deepseek-r1:14b",
-    model="unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS",
-    # model="gemma3:1b",
-    # model="mistral:7b-instruct",
-    temperature=0.8,
-)
+# LLM endpoint/model: env-overridable, defaults to the home Ollama box.
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.152:11080/v1")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS")
 
 
-@traceable
-async def respond_in_chat(message, bot_user):
-    channel = await bot_user.fetch_channel(message.channel.id)
-    # channel = bot_user.get_channel(1292642327566745601)
-    history = [m async for m in channel.history(limit=100, before=message)]
-    history.reverse()
-    past_chat_messages = []
-    for m in history:
-        try:
-            past_chat_messages.append(
-                SystemMessage(
-                    json.dumps(
-                        {
-                            "user": m.author.nick if m.author.nick else m.author.name,
-                            "user_id": m.author.id,
-                            "content": m.content,
-                            "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                    )
-                )
-            )
-        except:
-            pass
+def _make_model(temperature: float) -> OpenAIModel:
+    # The OpenAI client requires a non-empty api_key even for local
+    # OpenAI-compatible servers that ignore it.
+    return OpenAIModel(
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY", "ollama"),
+            "base_url": OLLAMA_BASE_URL,
+        },
+        model_id=OLLAMA_MODEL,
+        params={"temperature": temperature},
+    )
 
-    agent = create_react_agent(chat_ollama, tools=[])
-    rq = {
-        "messages": [
-            (
-                "system",
-                """You are a bot called SpinnyBoi behaving as a normal person in a discord server. Your job is to respond
+
+chat_ollama = _make_model(0.3)
+chat_ollama_fast = _make_model(0.8)
+
+
+def _make_agent(model, system_prompt=None, messages=None, tools=None) -> Agent:
+    """Factory for the agents used by every call site.
+
+    A fresh Agent is built per invocation so ``agent.messages`` never
+    accumulates across Discord messages (history is rebuilt from Discord
+    each time and would otherwise be double-counted). The ``messages`` list
+    is copied rather than adopted: strands appends the prompt and every
+    reply to ``agent.messages`` in place, so aliasing one list across the
+    parse-retry attempts in ``respond_in_chat`` would show the model the
+    trigger message once per attempt.
+    """
+    return Agent(
+        model=model,
+        system_prompt=system_prompt,
+        messages=list(messages) if messages is not None else None,
+        tools=tools or [],
+    )
+
+
+def _extract_text(result) -> str:
+    """Pull the final assistant text out of a strands AgentResult.
+
+    Reasoning-model thinking blocks arrive as separate ``reasoningContent``
+    content blocks and are excluded here, so only the actual answer text is
+    passed downstream.
+    """
+    if isinstance(result, str):
+        return result
+    message = getattr(result, "message", None)
+    if message is None and isinstance(result, dict):
+        message = result.get("message")
+    if isinstance(message, dict):
+        blocks = message.get("content") or []
+        return "".join(
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        )
+    return str(result)
+
+
+def _parse_chat_reply(msg: str) -> Tuple[str, Optional[str]]:
+    """Run the JSON-repair pipeline over one raw model reply.
+
+    Returns ``(transformed_msg, content)``. ``transformed_msg`` is the reply
+    after the escape/``</think>``/brace-clip transformations (returned
+    verbatim by the caller when every attempt fails); ``content`` is the
+    parsed ``"content"`` field, or ``None`` if the reply could not be
+    parsed or carried no usable ``"content"`` key. Bad replies are the
+    caller's retry input, never an exception.
+    """
+    msg = msg.replace("\\", "\\\\")
+    if "</think>" in msg:
+        msg = msg.split("</think>")[1]
+    try:
+        if not msg.startswith("{"):
+            msg = msg.split("{")[1]
+            msg = "{" + msg
+        if "}" in msg and not msg.endswith("}"):
+            msg = msg.split("}")[0]
+            msg = msg + "}"
+        final_json = json.loads(msg)
+        response = final_json["content"]
+        response = response.replace("\\n", "\n").replace("\\", "")
+        return msg, response
+    except IndexError:
+        return msg, None
+    except json.JSONDecodeError:
+        return msg, None
+    except (KeyError, TypeError):
+        # Parseable JSON with no usable "content" (or a non-dict payload):
+        # one more failed attempt, never a leak to the caller.
+        return msg, None
+
+
+CHAT_SYSTEM_PROMPT = """You are a bot called SpinnyBoi behaving as a normal person in a discord server. Your job is to respond
              in a way that is natural to the ongoing conversation in the channel. Your personality traits:
              - Type A
              - Overly supportive partner that believes we can beat Gio
              - Cynical
+
+             You may have access to tools. Use a tool ONLY when the current
+             conversation genuinely needs it - most messages need no tool at all,
+             and you should answer from personality and context alone. When a tool
+             does fire, summarize what it returns into a short, in-character reply;
+             never paste or recite raw results, never give a long research dump, and
+             never mention the tool itself.
+             - lookup_league_info: the league's announcements, schedules, and rules.
+               Use it for administrative questions (session times, rules,
+               registration, announcements) and answer from what it returns.
+             - lookup_web_topic: quick, current information (recent news, current
+               events, who won what, today's facts). Use it when someone references
+               something topical you wouldn't already know, and weave the result in.
+             - get_simracerhub_stats: the league's racing data on SimRacerHub -
+               season standings (points, wins, incidents, safety rating per driver)
+               and recent race results (start/finish position, points). Use it when
+               someone asks about league results, who is winning the championship,
+               how someone has been racing, or crash counts; weave the numbers in
+               naturally.
 
              You are given the last few messages in the channel in JSON format. The final JSON message is the one that triggers your response,
              so respond accordingly. Format your response as a JSON object with the following structure:
@@ -80,54 +144,214 @@ async def respond_in_chat(message, bot_user):
                     "content": <response>
                 }}
             Do not sign your messages or add any extra text outside the JSON object.
-                """,
-            ),
-            *past_chat_messages,
-            (
-                "user",
-                json.dumps(
+
+                """
+
+RETRY_FORMAT_DIRECTIVE = (
+    "Your previous reply was rejected: it was not the required JSON object. "
+    'Send it again as ONLY {"user": "SpinnyBoi", "content": "<your reply>"} - '
+    "same answer, no prose before or after, no code fences, no thinking text."
+)
+
+
+# Vision support: image/GIF attachments from recent channel messages (and
+# the triggering message) are handed to the model as strands image content
+# blocks, which the OpenAI-compatible adapter sends as image_url data URLs.
+# Set CHAT_VISION_ENABLED=0/false/off for a model that cannot see; animated
+# GIFs go through as-is and whether they animate is the server's business.
+MAX_VISION_IMAGES = 4
+MAX_VISION_IMAGE_BYTES = 8 * 1024 * 1024
+VISION_CONTENT_TYPES = {
+    "image/png": "png",
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpeg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+
+# The strands OpenAI adapter resolves the image data-URL mime from
+# mimetypes.types_map at send time, and stock CPython has no .webp entry -
+# the lookup silently falls back to application/octet-stream and llama.cpp
+# 400s ("Invalid uri format", echoing only the data-URI prefix). Register
+# every format we send so the adapter can never guess octet-stream.
+for _mime, _suffix in (
+    ("image/png", ".png"),
+    ("image/jpeg", ".jpeg"),
+    ("image/gif", ".gif"),
+    ("image/webp", ".webp"),
+):
+    if mimetypes.types_map.get(_suffix) is None:
+        mimetypes.add_type(_mime, _suffix)
+
+
+def _vision_enabled() -> bool:
+    return env_enabled(os.environ, "CHAT_VISION_ENABLED")
+
+
+async def _attachment_image_block(attachment):
+    """Download one Discord attachment as a strands image block.
+
+    Returns None for non-images, formats with no registered mime (see the
+    add_type block above; kept as a last-line guard), oversized files
+    (skipped without download), and failed downloads - one bad attachment
+    never sinks the turn."""
+    fmt = VISION_CONTENT_TYPES.get(attachment.content_type or "")
+    if fmt and mimetypes.types_map.get(f".{fmt}") is None:
+        fmt = None
+    if not fmt or attachment.size > MAX_VISION_IMAGE_BYTES:
+        return None
+    try:
+        data = await attachment.read()
+    except Exception:
+        logging.warning(
+            "chat image download failed (%s); skipping",
+            getattr(attachment, "filename", "?"),
+        )
+        return None
+    if not data or len(data) > MAX_VISION_IMAGE_BYTES:
+        return None
+    return {"image": {"format": fmt, "source": {"bytes": data}}}
+
+
+def _strip_image_blocks(messages):
+    """Copies of `messages` with image content blocks removed (used when the
+    inference server rejected the image payload mid-turn)."""
+    stripped = []
+    for m in messages:
+        content = m.get("content")
+        if isinstance(content, list) and any(
+            isinstance(b, dict) and "image" in b for b in content
+        ):
+            m = {
+                **m,
+                "content": [b for b in content if not (isinstance(b, dict) and "image" in b)],
+            }
+        stripped.append(m)
+    return stripped
+
+
+def _enabled_tools():
+    """Collect the chat tools whose adapters are configured.
+
+    Getters return None when a tool is disabled/unconfigured; that case and
+    any getter/tool failure are logged on one line and skipped - a broken
+    tool must never kill the chat reply."""
+    tools = []
+    for get_adapter, tool_attr in (
+        (get_league_memory, "lookup_tool"),
+        (get_web_lookup, "lookup_tool"),
+        (get_simracerhub, "stats_tool"),
+    ):
+        try:
+            tools.append(getattr(get_adapter(), tool_attr)())
+        except Exception:
+            logging.warning(f"Chat tool {tool_attr} unavailable; continuing without it.")
+    return tools
+
+
+async def respond_in_chat(message, bot_user, model=None):
+    """One chat turn: rebuild channel history, ask the model, parse the reply.
+
+    `model` overrides the default chat model (tests inject a double).
+    Image/GIF attachments on recent channel messages and the trigger ride
+    along as image content blocks when vision is enabled.
+    Never raises for a bad reply: after three unparsable attempts the last
+    transformed raw string is returned ("" if the model never answered).
+    A retry continues the SAME agent conversation with a reformat directive -
+    the model sees its own bad reply and the tool results stay in context,
+    instead of the whole agent (including another tool call cycle) being
+    rebuilt from scratch. If the inference server rejects an image payload,
+    the turn degrades once to a rebuilt text-only conversation."""
+    channel = await bot_user.fetch_channel(message.channel.id)
+    history = [m async for m in channel.history(limit=100, before=message)]
+    history.reverse()
+    include_images = _vision_enabled()
+    past_chat_messages = []
+    image_targets = []  # oldest -> newest: (attachment, content list to fill)
+    for m in history:
+        try:
+            entry = {
+                "role": "user",
+                "content": [
                     {
-                        "user": (
-                            message.author.nick
-                            if message.author.nick
-                            else message.author.name
-                        ),
-                        "user_id": message.author.id,
-                        "content": message.content,
-                        "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                        "text": json.dumps(
+                            {
+                                "user": m.author.nick if m.author.nick else m.author.name,
+                                "user_id": m.author.id,
+                                "content": m.content,
+                                "timestamp": m.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                            }
+                        )
                     }
-                ),
-            ),
-        ]
-    }
+                ],
+            }
+            past_chat_messages.append(entry)
+            if include_images:
+                for a in m.attachments:
+                    image_targets.append((a, entry["content"]))
+        except:
+            pass
+
+    trigger = json.dumps(
+        {
+            "user": message.author.nick if message.author.nick else message.author.name,
+            "user_id": message.author.id,
+            "content": message.content,
+            "timestamp": message.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    )
+    trigger_blocks = [{"text": trigger}]
+    if include_images:
+        for a in message.attachments:
+            image_targets.append((a, trigger_blocks))
+    # newest attachments win when there are more than the per-turn cap
+    image_blocks_added = 0
+    for attachment, content_list in image_targets[-MAX_VISION_IMAGES:]:
+        block = await _attachment_image_block(attachment)
+        if block is not None:
+            content_list.append(block)
+            image_blocks_added += 1
+
+    tools = _enabled_tools()
+    agent = None
+    prompt = trigger_blocks if len(trigger_blocks) > 1 else trigger
     x = 0
     r = None
+    msg = None
+    images_in_turn = image_blocks_added > 0
+    degraded_to_text = False
     while x < 3 and r is None:
-        response = await agent.ainvoke(rq)
-        msg = response["messages"][-1].content
-        msg = msg.replace("\\", "\\\\")
-        if "</think>" in msg:
-            msg = msg.split("</think>")[1]
+        if agent is None:
+            agent = _make_agent(
+                model or chat_ollama, CHAT_SYSTEM_PROMPT, past_chat_messages, tools=tools
+            )
+        else:
+            logging.warning(
+                "chat reply %d was not parseable JSON; asking the model to reformat", x
+            )
+            prompt = RETRY_FORMAT_DIRECTIVE
         try:
-            if not msg.startswith("{"):
-                msg = msg.split("{")[1]
-                msg = "{" + msg
-            if "}" in msg and not msg.endswith("}"):
-                msg = msg.split("}")[0]
-                msg = msg + "}"
-            final_json = json.loads(msg)
-            response = final_json["content"]
-            response = response.replace("\\n", "\n").replace("\\", "")
-            r = response
-        except IndexError:
-            pass
-        except json.JSONDecodeError:
-            pass
+            response = await agent.invoke_async(prompt)
+            raw_text = _extract_text(response)
+        except Exception:
+            logging.exception("chat agent invocation failed (attempt %d)", x + 1)
+            if images_in_turn and not degraded_to_text:
+                # likely the server choking on the image payload (e.g. llama.cpp
+                # 400s on data URLs it cannot sniff): rebuild text-only once,
+                # free of charge - a still answer beats a silent bot
+                logging.warning("degrading chat turn to text-only after image failure")
+                degraded_to_text = True
+                past_chat_messages = _strip_image_blocks(past_chat_messages)
+                agent = None
+                prompt = trigger
+                continue
+            x += 1  # a model/server failure burns an attempt too
+            continue
+        msg, r = _parse_chat_reply(raw_text)
         x += 1  # Increment counter to avoid infinite loop
-    if r is None:
-        return msg
-    else:
+    if r is not None:
         return r
+    return msg if isinstance(msg, str) else ""
 
 
 # Canned status lines matching the LLM's prompt style; used when the LLM
@@ -142,7 +366,7 @@ _WORKING_FALLBACKS = [
 ]
 
 
-async def working_on_it():
+async def working_on_it(model=None):
     """Return a short status message for in-progress commands.
 
     Decorative only: if the LLM is unavailable, returns an empty result, or
@@ -150,12 +374,10 @@ async def working_on_it():
     calling command always proceeds.
     """
     try:
+        agent = _make_agent(model or chat_ollama_fast)
         response = await asyncio.wait_for(
-            chat_ollama_fast.ainvoke(
-                [
-                    (
-                        "user",
-                        """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
+            agent.invoke_async(
+                """You are generating a single short, snarky, mildly antagonistic status message telling the user their task is in progress.
 Rules:
 - Output exactly one message.
 - Be playful and sarcastic, slightly impatient, but not offensive.
@@ -165,14 +387,11 @@ Rules:
 - Do not put the message in quotes.
 
 Example styles: "I'm working on it, relax.", "Hold your horses, speed racer.", "Patience, mortal."
-""",
-                    ),
-                ]
+"""
             ),
             timeout=5.0,
         )
-        content = response.content
-        msg = content.strip() if isinstance(content, str) else ""
+        msg = _extract_text(response).strip()
         if msg:
             return msg
         logging.warning("LLM returned an empty status message; using fallback.")
@@ -181,210 +400,3 @@ Example styles: "I'm working on it, relax.", "Hold your horses, speed racer.", "
             f"LLM unavailable for status message ({ex!r}); using fallback."
         )
     return random.choice(_WORKING_FALLBACKS)
-
-
-@traceable
-async def summarize_thread(
-    thread: discord.Thread,
-    subject: str,
-    example_summary: Optional[Tuple[List[dict], str]] = None,
-    reaction_counts: Optional[dict] = None,
-    options: Optional[dict] = None,
-    parent_message: Optional[discord.Message] = None,
-) -> str:
-    """
-    Summarize the conversation in a thread, focusing on the specified subject.
-
-    Args:
-        thread: The Discord thread to summarize
-        subject: The subject of the poll/incident to focus on
-        example_summary: Optional tuple containing (example_thread_messages, example_summary)
-                         for one-shot prompting
-        reaction_counts: Optional dictionary of reaction counts from the poll
-        options: Optional dictionary mapping reaction emojis to their descriptions
-        parent_message: Optional parent message that started the thread, if available
-
-    Returns:
-        A string containing the steward's decision for the racing incident
-    """
-    try:
-        # Get the thread history (up to 500 messages to capture the full conversation)
-        history = [m async for m in thread.history(limit=500)]
-
-        if not history:
-            return "No messages found in the thread to summarize."
-
-        # Process messages in chronological order
-        history.reverse()
-
-        # Format the messages for the LLM
-        formatted_messages = []
-
-        # Add parent message if provided or try to fetch it
-        parent_content = ""
-        if parent_message:
-            # Parent message was provided by the caller
-            try:
-                author_name = (
-                    parent_message.author.nick
-                    if parent_message.author.nick
-                    else parent_message.author.name
-                )
-                parent_content = f"THREAD PARENT MESSAGE:\nUser: {author_name}\nContent: {parent_message.content}\n\n"
-                formatted_messages.append(
-                    {
-                        "user": author_name,
-                        "content": f"[THREAD STARTER] {parent_message.content}",
-                        "timestamp": parent_message.created_at.strftime(
-                            "%Y-%m-%d %H:%M:%S"
-                        ),
-                        "is_parent": True,
-                    }
-                )
-            except Exception as e:
-                logging.warning(f"Failed to process provided parent message: {str(e)}")
-        else:
-            # Try to get parent message if this is a thread
-            try:
-                if hasattr(thread, "starter_message"):
-                    # Discord.py v2.0+ approach
-                    try:
-                        parent_message = await thread.fetch_message(thread.id)
-                    except:
-                        pass
-
-                if not parent_message and hasattr(thread, "parent"):
-                    # Try to get the parent message through the parent attribute
-                    try:
-                        parent_channel = thread.parent
-                        if parent_channel and hasattr(thread, "id"):
-                            parent_message = await parent_channel.fetch_message(
-                                thread.id
-                            )
-                    except:
-                        pass
-
-                # If we found a parent message, add it to formatted_messages
-                if parent_message:
-                    author_name = (
-                        parent_message.author.nick
-                        if parent_message.author.nick
-                        else parent_message.author.name
-                    )
-                    parent_content = f"THREAD PARENT MESSAGE:\nUser: {author_name}\nContent: {parent_message.content}\n\n"
-                    formatted_messages.append(
-                        {
-                            "user": author_name,
-                            "content": f"[THREAD STARTER] {parent_message.content}",
-                            "timestamp": parent_message.created_at.strftime(
-                                "%Y-%m-%d %H:%M:%S"
-                            ),
-                            "is_parent": True,
-                        }
-                    )
-            except Exception as e:
-                logging.warning(f"Failed to fetch parent message: {str(e)}")
-
-        # Add thread messages
-        for msg in history:
-            if (
-                not msg.author.bot or msg.author.name == "SpinnyBoi"
-            ):  # Include bot messages if they're from SpinnyBoi
-                author_name = msg.author.nick if msg.author.nick else msg.author.name
-                formatted_messages.append(
-                    {
-                        "user": author_name,
-                        "content": msg.content,
-                        "timestamp": msg.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                )
-
-        # Initialize poll results to include in context
-        poll_results = {}
-        if reaction_counts and options:
-            for emoji, label in options.items():
-                count = reaction_counts.get(emoji, 0)
-                poll_results[label] = count
-
-        # Format poll results for inclusion in the prompt
-
-        # Create system prompt for the summarization
-        system_prompt = f"""You are a racing steward tasked with reviewing a sim racing incident in iRacing: "{subject}".
-
-Your task:
-1. Analyze the conversation history provided in JSON format about this racing incident.
-2. Focus specifically on discussion related to the incident: "{subject}".
-3. If multiple incidents are being discussed, focus ONLY on content related to "{subject}".
-4. Consider the poll results which show how the community voted on this incident:
-   {json.dumps(poll_results, indent=2)}
-
-5. Apply the league's racing rules to make your decision. The rules are:
-```
-E1: Drivers are always responsible their car.
-E2: Do not intentionally spin or force another driver off the track.
-E3: If you spin or force another driver off the track, you must make a safe and honest attempt to relinquish that position once you rejoin.
-E4: If you are involved in a spin or accident, hold your brake, reorient the car, and wait until it is safe to rejoin.
-E5: When rejoining the track or rotating your car after a spin, do not re-enter the racing line until you are pointed in the correct direction.
-E6: When approaching an accident ahead, you are responsible for slowing appropriately and taking measures to avoid it.
-E7: If overlap is not established by the overtaking car at the turn-in point of the corner, the defending car has the right to the apex and is not required to leave space for the trailing car.
-E8: Dive-bombing occurs when the overtaking car fails to make the corner cleanly and safely, even if overlap is momentarily established.
-E9: A car on the outside has the right to the outside line at corner exit if overlap is established.
-E10: During open qualifying, cars not on legal timed and push laps must avoid impeding other cars on push laps.
-
-Overtaking overlap is defined as the front axle of the overtaking car alongside the rear axle of the defending car.
-```
-
-6. Provide a concise steward's decision (50-200 words) with the following structure:
-```
-Drivers: [Names of drivers involved]
-
-Incident: [Brief description of what happened in one or two sentences]
-
-Decision: [The ruling voted on by the stewards]
-
-[Summary of the reasoning behind the decision in 2-3 sentences]
-```
-Notes:
-- Use a professional tone, avoid slang or casual language.
-- Be fair and impartial in your assessment.
-- Even if the thread doesn't contain much discussion, provide a brief but complete steward's report.
-- Consider the poll results as steward's input, do not make your own independent assessment.
-- Do not reference specific users or quotes from the thread in your decision.
-- Avoid personal opinions, focus on the facts and rules.
-- Don't include every detail, just the key points relevant to the decision.
-
-"""
-
-        # Set up messages for the LLM
-        messages = [SystemMessage(content=system_prompt)]
-
-        # Add one-shot example if available
-        if example_summary:
-            example_thread_messages, example_summary_text = example_summary
-            example_user_message = (
-                "Here's an example conversation about an incident:\n"
-                + json.dumps(example_thread_messages, indent=2)
-            )
-            messages.append(HumanMessage(content=example_user_message))
-            messages.append(
-                SystemMessage(
-                    content=f"Here's an example of a well written decision for that example conversation:\n\n{example_summary_text}"
-                )
-            )
-
-        # Add the current thread to summarize
-        user_message = (
-            "Here's the conversation history you are to summarize:\n"
-            + json.dumps(formatted_messages, indent=2)
-        )
-        messages.append(HumanMessage(content=user_message))
-
-        # Invoke the LLM for summarization - using the larger model for better summarization quality
-        response = await chat_ollama_low_temp.ainvoke(messages)
-
-        # Return the summarized content
-        return response.content
-
-    except Exception as e:
-        logging.error(f"Error summarizing thread: {str(e)}")
-        return f"Failed to summarize thread: {str(e)}"

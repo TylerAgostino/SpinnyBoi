@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import threading
 import uuid
 from functools import wraps
 from typing import Optional
@@ -18,58 +19,34 @@ from discord.ext import commands, tasks
 from selenium import webdriver
 
 from modules import ChatHandler, WheelSpinner
-from modules.scheduler.scheduler import (
-    cancel_event,
-    get_all_scheduled_events,
-    get_pending_events,
-    mark_event_completed,
-    schedule_event,
-)
+from modules.preset_source import PresetNotFound, PresetSource
+from modules.scheduler.scheduler import ScheduledEvent, Scheduler
 
-
-# The WheelCog instance. The autocomplete callbacks below are module-level
-# callables (required by discord.utils.basic_autocomplete) and read the
-# cog's cached presets frame instead of fetching from Google per keystroke.
-_wheel_cog: Optional["WheelCog"] = None
-
-
-def _presets_csv_url() -> str:
-    base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
-    return f"{base_url}/gviz/tq?tqx=out:csv&sheet=presets"
-
-
-async def _presets_frame() -> pd.DataFrame:
-    """Return the cached presets frame; fetch off-loop only when absent."""
-    if _wheel_cog is not None and _wheel_cog.presets_df is not None:
-        return _wheel_cog.presets_df
-    return await asyncio.to_thread(pd.read_csv, _presets_csv_url())
 
 
 async def get_presets(a):
-    presets_df = await _presets_frame()
-    return [x["Fullname"] for x in presets_df.to_dict("records")]
+    return await asyncio.to_thread(PresetSource.default().names)
 
 
 async def get_preset_tabs(ctx):
-    presets_df = await _presets_frame()
     preset_name = ctx.options.get("preset_name", "")
     if not preset_name:
         return []
-    try:
-        filters_df = presets_df.query(
-            f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
-        ).to_dict("records")[0]
-        tabs = [
-            k for k, v in filters_df.items() if isinstance(v, str) and k != "Fullname"
-        ]
-        return tabs
-    except Exception as e:
-        logging.error(f"Error getting tabs for preset {preset_name}: {str(e)}")
-        return []
+    return await asyncio.to_thread(PresetSource.default().tabs, preset_name)
 
 
 class NoTabError(Exception):
     pass
+
+
+def _quit_driver(driver):
+    """Quit a webdriver, swallowing and logging failures. Runs on the quit
+    thread, so nothing may let an exception escape here."""
+    try:
+        driver.quit()
+    except Exception:
+        logging.exception("Failed to quit webdriver cleanly")
+
 
 
 def wheel_command(needs_driver=True, is_interaction=True):
@@ -166,9 +143,15 @@ def wheel_command(needs_driver=True, is_interaction=True):
                             files=response_attachment,
                         )
             finally:
-                # Clean up the driver off the event loop as well
+                # Clean the driver down on a plain non-daemon thread. If this
+                # command task was cancelled (bot shutdown, cancelled
+                # interaction), an awaited quit is cancelled right back before
+                # it runs and Firefox is left hanging; a bare thread runs the
+                # quit to completion no matter what happens to this task.
                 if driver:
-                    await asyncio.to_thread(driver.quit)
+                    threading.Thread(
+                        target=_quit_driver, args=(driver,), name="webdriver-quit"
+                    ).start()
 
         return wrapper
 
@@ -184,11 +167,12 @@ class _WheelOption:
 
 
 class WheelCog(commands.Cog):
-    def __init__(self, bot):
-        base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
-
-        self.ghseet_url = lambda x: f"{base_url}/gviz/tq?tqx=out:csv&sheet={x}"
-
+    def __init__(
+        self,
+        bot,
+        scheduler: Optional[Scheduler] = None,
+        presets: Optional[PresetSource] = None,
+    ):
         # Days of week for schedule command
         self.days_of_week = {
             "monday": 0,
@@ -200,7 +184,8 @@ class WheelCog(commands.Cog):
             "sunday": 6,
         }
 
-        self.presets_df = pd.read_csv(self.ghseet_url("presets"))
+        self.presets = presets or PresetSource.default()
+        self.presets.load()
         options = webdriver.FirefoxOptions()
         options.add_argument("--headless")
         options.add_argument("--height=1100")
@@ -209,71 +194,47 @@ class WheelCog(commands.Cog):
         self.driver_options = options
 
         self.bot = bot
+        self.scheduler = scheduler or Scheduler.from_env()
+        self.scheduler.register_handler("spin_preset", self._run_scheduled_spin)
         self.check_scheduled_events.start()
         self.refresh_presets.start()
-        # Module-level autocomplete callbacks read this cog's cached frame.
-        global _wheel_cog
-        _wheel_cog = self
 
     spin = discord.SlashCommandGroup("spin", "Spin commands")
     schedule = discord.SlashCommandGroup("schedule", "Schedule commands")
 
     @tasks.loop(minutes=5)
     async def refresh_presets(self):
-        """Refresh the presets dataframe every 5 minutes."""
-        try:
-            self.presets_df = await asyncio.to_thread(
-                pd.read_csv, self.ghseet_url("presets")
-            )
-        except Exception as e:
-            logging.error(f"Error refreshing presets dataframe: {str(e)}")
+        """Refresh the presets frame every 5 minutes; old frame survives failures."""
+        await self.presets.refresh()
 
     @tasks.loop(minutes=1)
     async def check_scheduled_events(self):
-        """Check for pending scheduled events and execute them."""
-        pending_events = get_pending_events()
-        message, files, filename = "No matching command.", None, None
-        for event in pending_events:
+        """Execute every due scheduled event via the scheduler."""
+        await self.scheduler.run_due()
+
+    async def _run_scheduled_spin(self, event: ScheduledEvent) -> None:
+        """Handler for spin_preset events, dispatched by the scheduler."""
+        channel = await self.bot.fetch_channel(int(event.channel_id))
+        if not channel:
+            logging.error(
+                f"Channel {event.channel_id} not found for event {event.id}"
+            )
+            return
+
+        data = json.loads(event.data) if event.data else {}
+        preset_name = data.get("preset_name")
+        role_id = data.get("role_id")
+        role = None
+        if role_id:
             try:
-                logging.info(
-                    f"Processing scheduled event {event.id}: {event.function_name}"
-                )
-
-                # Get the channel where this event should be executed
-                channel = await self.bot.fetch_channel(int(event.channel_id))
-                if not channel:
-                    logging.error(
-                        f"Channel {event.channel_id} not found for event {event.id}"
-                    )
-                    if event.id is not None:
-                        mark_event_completed(event.id)
-                    continue
-
-                # Parse the event data
-                data = json.loads(event.data) if event.data else {}
-
-                if event.function_name == "spin_preset":
-                    preset_name = data.get("preset_name")
-                    role_id = data.get("role_id")
-                    role = None
-                    if role_id:
-                        try:
-                            guild = channel.guild
-                            role = guild.get_role(role_id)
-                        except Exception as e:
-                            logging.error(f"Error fetching role {role_id}: {str(e)}")
-
-                    await self.spin_preset_new_message(
-                        ctx=channel, preset_name=preset_name, role=role
-                    )
-
-                    # Mark the event as completed
-                    if event.id is not None:
-                        mark_event_completed(event.id)
+                guild = channel.guild
+                role = guild.get_role(role_id)
             except Exception as e:
-                logging.error(f"Error executing scheduled event {event.id}: {str(e)}")
+                logging.error(f"Error fetching role {role_id}: {str(e)}")
 
-            return message, files, filename
+        await self.spin_preset_new_message(
+            ctx=channel, preset_name=preset_name, role=role
+        )
 
     @staticmethod
     def get_message(messages_file="messages.txt"):
@@ -353,45 +314,39 @@ class WheelCog(commands.Cog):
         bot_response=None,
     ):
         try:
-            self.presets_df = await asyncio.to_thread(
-                pd.read_csv, self.ghseet_url("presets")
-            )
-            filters_df = self.presets_df.query(
-                f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
-            ).to_dict("records")[0]
-        except IndexError:
+            await asyncio.to_thread(self.presets.load)
+            preset = self.presets.preset(preset_name)
+        except PresetNotFound:
             return f"I can't find a preset named {preset_name}.", None, None
 
         wheels = []
-        for tab in filters_df.keys():
-            if isinstance(filters_df[tab], str) and tab != "Fullname":
-                filter_string = str(filters_df[tab]).lower()
-                try:
-                    opt_set = await self.generate_option_set(tab, filter_string)
-                except Exception as e:
-                    logging.error(
-                        f"Error processing tab {tab}, filter string {filter_string}: {str(e)}"
-                    )
-                    return (
-                        f"The preset {preset_name} ran into an error: {str(e)}",
-                        None,
-                        None,
-                    )
+        for tab, raw_filter in preset.filters():
+            filter_string = str(raw_filter).lower()
+            try:
+                opt_set = await self.generate_option_set(tab, filter_string)
+            except Exception as e:
+                logging.error(
+                    f"Error processing tab {tab}, filter string {filter_string}: {str(e)}"
+                )
+                return (
+                    f"The preset {preset_name} ran into an error: {str(e)}",
+                    None,
+                    None,
+                )
 
-                wheel = WheelSpinner.WheelSpinner(opt_set)
-                wheels.append(wheel)
-                depth = 0
-                next_spin = wheel.next_spin
-                while next_spin is not None and depth < 10:
-                    next_tab, next_filter_string = next_spin
-                    next_opt_set = await self.generate_option_set(
-                        next_tab, next_filter_string
-                    )
-                    next_wheel = WheelSpinner.WheelSpinner(next_opt_set)
-                    wheels.append(next_wheel)
-                    next_spin = next_wheel.next_spin
-                    depth += 1
-                    pass
+            wheel = WheelSpinner.WheelSpinner(opt_set)
+            wheels.append(wheel)
+            depth = 0
+            next_spin = wheel.next_spin
+            while next_spin is not None and depth < 10:
+                next_tab, next_filter_string = next_spin
+                next_opt_set = await self.generate_option_set(
+                    next_tab, next_filter_string
+                )
+                next_wheel = WheelSpinner.WheelSpinner(next_opt_set)
+                wheels.append(next_wheel)
+                next_spin = next_wheel.next_spin
+                depth += 1
 
         gifs = []
         responses = []
@@ -425,19 +380,16 @@ class WheelCog(commands.Cog):
     @wheel_command(needs_driver=False)
     async def spinfo(self, ctx, preset_name, tab_name, driver=None, bot_response=None):
         try:
-            self.presets_df = await asyncio.to_thread(
-                pd.read_csv, self.ghseet_url("presets")
+            await asyncio.to_thread(self.presets.load)
+            preset = self.presets.preset(preset_name)
+            tab_name, filter_string = preset.resolve_tab(tab_name)
+            filter_string = str(filter_string).lower()
+        except PresetNotFound:
+            return (
+                f"I can't find tab {tab_name} on preset {preset_name}.",
+                None,
+                None,
             )
-            filters_df = self.presets_df.query(
-                f"Fullname.astype('string').str.lower()=='{preset_name.lower()}'"
-            ).to_dict("records")[0]
-        except IndexError:
-            return f"I can't find a preset named {preset_name}.", None, None
-
-        for tab in filters_df.keys():
-            if tab.lower() == tab_name.lower():
-                tab_name = tab
-        filter_string = str(filters_df[tab_name]).lower()
         try:
             opt_set = await self.generate_option_set(tab_name, filter_string)
         except Exception as e:
@@ -494,7 +446,7 @@ class WheelCog(commands.Cog):
 
     async def generate_option_set(self, tab, filter_string=""):
         try:
-            df = await asyncio.to_thread(pd.read_csv, self.ghseet_url(tab))
+            df = await self.presets.read_tab(tab)
             if list(df.columns.values) == ["FALSE"]:
                 raise NoTabError(f"Tab {tab} not found")
             pass
@@ -704,9 +656,6 @@ class WheelCog(commands.Cog):
     ):
         """Schedule a preset spin in the current channel for a specific day and time."""
         await ctx.defer()
-        self.presets_df = await asyncio.to_thread(
-            pd.read_csv, self.ghseet_url("presets")
-        )
 
         # Get the current date
         now = datetime.datetime.now()
@@ -750,7 +699,7 @@ class WheelCog(commands.Cog):
             return "I don't have permission to post in this channel.", None, None
 
         # Schedule the event
-        schedule_event(
+        self.scheduler.schedule(
             timestamp=timestamp,
             function_name="spin_preset",
             message_id=ctx.interaction.id,
@@ -777,7 +726,7 @@ class WheelCog(commands.Cog):
         await ctx.defer()
 
         # Get all scheduled events
-        scheduled_events = get_all_scheduled_events()
+        scheduled_events = self.scheduler.all_active()
 
         # Filter for spin events
         spin_events = [
@@ -829,7 +778,7 @@ class WheelCog(commands.Cog):
         await ctx.defer()
 
         # Get the specific event
-        all_events = get_all_scheduled_events()
+        all_events = self.scheduler.all_active()
         event = next(
             (
                 e
@@ -844,7 +793,7 @@ class WheelCog(commands.Cog):
             return f"No scheduled spin with ID {event_id}.", None, None
 
         # Cancel the event
-        if cancel_event(event_id):
+        if self.scheduler.cancel(event_id):
             # Get the event details for the response
             data = json.loads(event.data) if event.data else {}
             preset_name = data.get("preset_name", "Unknown preset")

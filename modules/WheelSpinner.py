@@ -9,12 +9,24 @@ import uuid
 
 import drawsvg as draw
 from PIL import Image
+from typing import Any, NamedTuple, Optional
+
+
+class SpinResult(NamedTuple):
+    """The explicit outcome of a spinner's decided spin."""
+
+    winner: str
+    response: str
+    next_spin: Optional[Any]
 
 
 class WheelSpinner:
-    def __init__(self, options):
+    def __init__(self, options, rng=None):
+        # rng seam: pass any random.Random-like object for deterministic spins.
+        self._rng = random if rng is None else rng
+        self.winner = None
         self.colors = ["#011C39", "#C44E4F", "#143C5D", "#FFBB55"]
-        self.colors_set = random.randint(0, len(self.colors) - 1)
+        self.colors_set = self._rng.randint(0, len(self.colors) - 1)
 
         self.weighted_options = options
         self.repeated_options = []
@@ -54,14 +66,15 @@ class WheelSpinner:
         self.colors_set = (self.colors_set + 1) % len(self.colors)
         return self.colors[self.colors_set]
 
-    def return_gif(self, driver=None):
+    def return_gif(self, driver=None, frame_count=90):
         logging.info("Generating gif")
         # create a directory with a unique name
         # generate a uuid for the directory name
         run_id = f"{os.getcwd()}/{str(uuid.uuid4())[0:8]}"
         os.makedirs(run_id)
+        own_driver = driver is None
         try:
-            if driver is None:
+            if own_driver:
                 from selenium import webdriver
 
                 logging.info("No browser provided, starting a new one")
@@ -80,18 +93,35 @@ class WheelSpinner:
                 "document.body.style.margin='0'; document.body.style.padding='0'; document.body.style.overflow='hidden';"
             )
 
+            # Drive the SMIL clock by hand. Real-time animation plus
+            # variable-latency screenshots means every frame lands on a
+            # different point of the timeline; pausing and seeking to fixed
+            # times makes frame i always show animation time i*step, no
+            # matter how long each capture takes or how the caller paces us.
+            duration = getattr(self.animation, "animation_duration", None) or 2
+            step = duration / frame_count
+            driver.execute_script(
+                "window.__svg = document.querySelector('svg');"
+                "window.__svg.pauseAnimations();"
+            )
+
             logging.info("Taking screenshots")
             frames = []
-            for i in range(90):
-                driver.get_screenshot_as_file(f"{run_id}/{i}.png")
-                f = Image.open(f"{run_id}/{i}.png")
-                f.info["duration"] = 0.1
+            for i in range(frame_count):
+                driver.execute_async_script(
+                    "var t = arguments[0], done = arguments[arguments.length - 1];"
+                    "var fin = (function (fired) { return function () {"
+                    "if (!fired) { fired = true; done(); };"
+                    "}; })(false);"
+                    "window.__svg.setCurrentTime(t);"
+                    "requestAnimationFrame(function () {"
+                    "requestAnimationFrame(function () { fin(); });;"
+                    "});"
+                    "setTimeout(fin, 100);",
+                    i * step,
+                )
+                f = Image.open(io.BytesIO(driver.get_screenshot_as_png()))
                 frames.append(f)
-
-            # logging.info('Cleaning up')
-            # # Close the browser
-            # driver.close()
-            # driver.quit()
 
             logging.info("Saving gif")
             fh = io.BytesIO()
@@ -100,29 +130,37 @@ class WheelSpinner:
                 format="GIF",
                 append_images=frames[1:],
                 save_all=True,
-                duration=50,
+                # one GIF frame per capture step so playback matches the
+                # animation's real duration
+                duration=int(1000 * step),
                 optimize=False,
                 loop=1,
             )
             fh.seek(0)
         finally:
+            if own_driver and driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    logging.exception("Failed to quit the self-created webdriver")
             shutil.rmtree(run_id)
         logging.info("Done generating gif")
         return fh
 
     def generate_animation(self):
         # 1 in 30 chance of comic sans
-        if random.randint(0, 30) == 0:
+        if self._rng.randint(0, 30) == 0:
             font = "Comic Sans MS"
         else:
             font = "Avenir Next"
+        duration = 2  # Seconds
         d = draw.Drawing(
             200,
             200,
             origin="center",
             animation_config=draw.types.SyncedAnimationConfig(
                 # Animation configuration
-                duration=2,  # Seconds
+                duration=duration,
                 show_playback_progress=False,
                 show_playback_controls=False,
                 pause_on_load=False,
@@ -130,11 +168,13 @@ class WheelSpinner:
             ),
             font_family=font,
         )
-
+        # drawsvg consumes animation_config at build time; keep the duration
+        # where return_gif can pace frame captures against it.
+        d.animation_duration = duration
         d.append(draw.Rectangle(-150, -150, 300, 300, fill="#E7D5C5"))
 
         wheel = self.get_wheel()
-        start_pos = random.randint(360, 400)
+        start_pos = self._rng.randint(360, 400)
         end_pos = (
             self.weighted_options[0].weight
             / sum([option.weight for option in self.weighted_options])
@@ -435,14 +475,24 @@ class WheelSpinner:
         #      .888%%%%%%%%%%%%%%%%%%%%888.
         #     888%%JGS%%%%%%%%%%%%%%%%%%%888
 
-        random.shuffle(self.repeated_options)
+        self._rng.shuffle(self.repeated_options)
+        self.winner = self.repeated_options[0]
         for i in range(len(self.weighted_options)):
-            if self.weighted_options[i] == self.repeated_options[0]:
+            if self.weighted_options[i] == self.winner:
                 self.weighted_options.insert(0, self.weighted_options.pop(i))
                 return
 
+    @property
+    def result(self) -> SpinResult:
+        """Read the decided outcome without digging through wheel internals."""
+        return SpinResult(
+            winner=self.winner.option if self.winner else "",
+            response=self.response,
+            next_spin=self.next_spin,
+        )
+
     @staticmethod
-    def create_spindex(options):
+    def create_spindex(options, rng=None):
         """Creates a WheelSpinner instance configured for spindex animation instead of wheel spin.
 
         Args:
@@ -461,7 +511,7 @@ class WheelSpinner:
         option_objects = [SimpleOption(opt) for opt in options]
 
         # Create and configure the spinner
-        spinner = WheelSpinner(option_objects)
+        spinner = WheelSpinner(option_objects, rng=rng)
         # Replace the wheel animation with the spindex animation
         spinner.animation = spinner.generate_spindex_animation()
         return spinner
@@ -506,12 +556,13 @@ class WheelSpinner:
 
         # Create drawing canvas
         width = sum(column_widths) * (base_font_size)
+        duration = 10  # Seconds - adjusted for better timing
         d = draw.Drawing(
             height=200,
             width=width,
             origin="center",
             animation_config=draw.types.SyncedAnimationConfig(
-                duration=10,  # Seconds - adjusted for better timing
+                duration=duration,
                 show_playback_progress=False,
                 show_playback_controls=False,
                 pause_on_load=False,
@@ -520,6 +571,9 @@ class WheelSpinner:
             ),
             font_family=font,
         )
+        # drawsvg consumes animation_config at build time; keep the duration
+        # where return_gif can pace frame captures against it.
+        d.animation_duration = duration
         # Add each item with its animation
         for i, option in enumerate(self.weighted_options):
             # Calculate timing for this item - make each item appear sequentially

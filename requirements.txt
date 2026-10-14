@@ -5,9 +5,9 @@ pandas
 drawsvg[all]
 dataframe_image
 matplotlib
-langchain-openai
-langchain
-langgraph
+strands-agents
+strands-agents[openai]
+numpy
 transformers
 aiosqlite
 pytz

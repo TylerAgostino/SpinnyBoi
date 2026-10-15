@@ -6,11 +6,17 @@ tests/test_ChatHandler.py remains a live-Discord integration harness.
 
 Run: python -m unittest tests.test_ChatHandler_unit
 """
+import asyncio
 import datetime
+import io
 import json
 import os
+import struct
 import unittest
+import zlib
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from PIL import Image
 
 from modules import ChatHandler
 
@@ -283,12 +289,78 @@ class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, "")
         self.assertEqual(agent.invoke_async.await_count, 3)
 
+    async def test_invocation_failure_rebuilds_agent_and_reasks_trigger(self):
+        """A failed invocation answered nothing, so a reformat directive has
+        no bad reply to point at and a canceled strands agent may sit
+        mid-exchange: a fresh agent must get the real prompt."""
+        bad = MagicMock()
+        bad.invoke_async = AsyncMock(side_effect=RuntimeError("connection reset"))
+        good = fake_agent(['{"user": "SpinnyBoi", "content": "second try"}'])
+        trigger = make_discord_message("hey there")
+        bot = make_bot_user([])
+        with patch.object(ChatHandler, "_make_agent", side_effect=[bad, good]) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "second try")
+        self.assertEqual(make_agent.call_count, 2)
+        retry_prompt = good.invoke_async.call_args.args[0]
+        self.assertIn("hey there", retry_prompt)
+        # reformat directives are for parse retries only
+        self.assertNotIn("JSON", retry_prompt)
+
     def test_make_agent_copies_history_list(self):
         history = [{"role": "user", "content": [{"text": "hi"}]}]
         agent = ChatHandler._make_agent(MagicMock(), "sys", history)
         self.assertIsNot(agent.messages, history)
         agent.messages.append({"role": "user", "content": [{"text": "trigger"}]})
         self.assertEqual(len(history), 1)
+
+
+class DecompressionBombTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _png_chunk(tag, payload):
+        return (
+            struct.pack(">I", len(payload))
+            + tag
+            + payload
+            + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF)
+        )
+
+    @staticmethod
+    def _png_declaring(w, h):
+        # well-formed chunk structure so Pillow parses the header for real
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+        idat = zlib.compress(b"\x00" * 30)
+        return (
+            b"\x89PNG\r\n\x1a\n"
+            + DecompressionBombTests._png_chunk(b"IHDR", ihdr)
+            + DecompressionBombTests._png_chunk(b"IDAT", idat)
+            + DecompressionBombTests._png_chunk(b"IEND", b"")
+        )
+
+    async def test_decompression_bomb_is_skipped(self):
+        # a tiny file declaring a 10 gigapixel PNG: Pillow raises
+        # DecompressionBombError at open(); the image must be skipped, never
+        # passed through to the inference server
+        bomb = make_attachment(
+            content_type="image/png",
+            data=self._png_declaring(100000, 100000),
+        )
+        self.assertIsNone(await ChatHandler._attachment_image_block(bomb))
+
+    async def test_megapixel_outlier_is_skipped(self):
+        # 45.5 MP real decodable PNG: below Pillow's bomb limit but above
+        # this module's pixel ceiling; decoding-and-resizing it is not worth
+        # the memory, so it is skipped
+        buf = io.BytesIO()
+        Image.new("RGB", (7000, 6500), "red").save(buf, "PNG")
+        att = make_attachment(content_type="image/png", data=buf.getvalue())
+        self.assertIsNone(await ChatHandler._attachment_image_block(att))
+
+
+
 
 
 class AttachmentBlockTests(unittest.IsolatedAsyncioTestCase):
@@ -409,6 +481,25 @@ class VisionPassThroughTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(good.invoke_async.call_args.args[0], str)
         self.assertNotIn("rejected", good.invoke_async.call_args.args[0])
 
+    async def test_byte_budget_keeps_newest_images(self):
+        atts = [make_attachment(data=ch.encode() * 100) for ch in "ABC"]
+        agent = fake_agent(['{"user": "SpinnyBoi", "content": "nice"}'])
+        trigger = make_discord_message("three pics", attachments=atts)
+        bot = make_bot_user([])
+        with patch.object(ChatHandler, "_vision_total_budget_bytes", return_value=250), \
+             patch.object(ChatHandler, "_make_agent", return_value=agent), \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None):
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "nice")
+        prompt = agent.invoke_async.call_args.args[0]
+        # the newest images claim the budget first; A is dropped
+        self.assertEqual(
+            [img["source"]["bytes"] for img in self._images(prompt)],
+            [b"B" * 100, b"C" * 100],
+        )
+
 class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_text(self):
         agent = fake_agent(["Patience, mortal."])
@@ -453,6 +544,113 @@ class ExtractTextTests(unittest.TestCase):
         r = FakeAgentResult("final")
         r.message["content"].insert(0, {"reasoningContent": {}})
         self.assertEqual(ChatHandler._extract_text(r), "final")
+
+
+class ModelParamsTests(unittest.TestCase):
+    def test_generation_and_client_are_bounded(self):
+        # regression: max_tokens was unset, so llama.cpp ran with
+        # num_predict=-1 and a degraded model streamed nonsense forever
+        # ("stuck thinking forever"); both completion and client now capped
+        model = ChatHandler._make_model(0.5)
+        self.assertEqual(
+            model.config["params"]["max_tokens"], ChatHandler.CHAT_MAX_TOKENS
+        )
+        self.assertGreaterEqual(model.config["params"]["max_tokens"], 64)
+        self.assertLessEqual(model.client_args["timeout"], 900)
+
+
+class NormalizeImageTests(unittest.TestCase):
+    @staticmethod
+    def _png(w, h):
+        buf = io.BytesIO()
+        Image.new("RGB", (w, h), "red").save(buf, "PNG")
+        return buf.getvalue()
+
+    @staticmethod
+    def _dims(data):
+        with Image.open(io.BytesIO(data)) as img:
+            return img.size
+
+    def test_oversized_image_downscaled_to_cap(self):
+        # regression: a 1700x1200 screenshot sailed through the 8 MB byte cap
+        # and blew the vision-token budget, garbling the llama.cpp context
+        out, fmt = ChatHandler._normalize_image_bytes(self._png(1700, 1200), "png")
+        self.assertEqual(fmt, "png")
+        w, h = self._dims(out)
+        self.assertEqual(max(w, h), ChatHandler._vision_max_dim())
+        self.assertAlmostEqual(w / h, 1700 / 1200, places=2)
+
+    def test_oversized_jpeg_reencoded_as_jpeg(self):
+        buf = io.BytesIO()
+        Image.new("RGB", (400, 1700), "blue").save(buf, "JPEG")
+        out, fmt = ChatHandler._normalize_image_bytes(buf.getvalue(), "jpeg")
+        self.assertEqual(fmt, "jpeg")
+        self.assertLessEqual(max(self._dims(out)), ChatHandler._vision_max_dim())
+
+    def test_small_image_passes_through_byte_identical(self):
+        data = self._png(64, 50)
+        out, fmt = ChatHandler._normalize_image_bytes(data, "png")
+        self.assertEqual(out, data)
+        self.assertEqual(fmt, "png")
+
+    def test_undecodable_passes_through(self):
+        # fake bytes are the server's business exactly as before normalization
+        out, fmt = ChatHandler._normalize_image_bytes(b"GIF89a", "gif")
+        self.assertEqual((out, fmt), (b"GIF89a", "gif"))
+
+
+def stuck_agent():
+    """Agent double whose invoke_async never returns (degraded stream or
+    wedged inference server - the live 'stuck thinking forever' failure)."""
+    agent = MagicMock()
+
+    async def never(prompt):
+        await asyncio.sleep(3600)
+
+    agent.invoke_async = AsyncMock(side_effect=never)
+    return agent
+
+
+class InvocationTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    timeout_env = {"CHAT_TURN_TIMEOUT_SECONDS": "1"}
+
+    @staticmethod
+    def _tool_patches():
+        return [
+            patch.object(ChatHandler, "get_league_memory", return_value=None),
+            patch.object(ChatHandler, "get_web_lookup", return_value=None),
+            patch.object(ChatHandler, "get_simracerhub", return_value=None),
+        ]
+
+    async def test_timeout_burns_attempts_and_returns(self):
+        agent = stuck_agent()
+        trigger = make_discord_message("hey")
+        bot = make_bot_user([])
+        with patch.dict(os.environ, self.timeout_env), \
+             patch.object(ChatHandler, "_make_agent", return_value=agent), \
+             self._tool_patches()[0], self._tool_patches()[1], self._tool_patches()[2]:
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "")
+        self.assertEqual(agent.invoke_async.await_count, 3)
+
+    async def test_timeout_on_image_turn_degrades_to_text_only(self):
+        stuck = stuck_agent()
+        good = fake_agent(['{"user": "SpinnyBoi", "content": "alive"}'])
+        history = [
+            make_discord_message("pic", attachments=[make_attachment(data=b"HIST")])
+        ]
+        trigger = make_discord_message("look", attachments=[make_attachment(data=b"TRIG")])
+        bot = make_bot_user(history)
+        with patch.dict(os.environ, self.timeout_env), \
+             patch.object(
+                 ChatHandler, "_make_agent", side_effect=[stuck, good]
+             ) as make_agent, \
+             self._tool_patches()[0], self._tool_patches()[1], self._tool_patches()[2]:
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "alive")
+        self.assertEqual(make_agent.call_count, 2)
+        second = make_agent.call_args_list[1].args[2]
+        self.assertFalse(any(any("image" in b for b in e["content"]) for e in second))
 
 
 if __name__ == "__main__":

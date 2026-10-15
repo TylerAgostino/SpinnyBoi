@@ -1,5 +1,6 @@
 # pyright: basic
 import asyncio
+import io
 import json
 import logging
 import mimetypes
@@ -7,29 +8,48 @@ import os
 import random
 from typing import Optional, Tuple
 
+from PIL import Image
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
+from modules.env_config import env_enabled, env_int
 from modules.league_memory import get_league_memory
 from modules.simracerhub import get_simracerhub
 from modules.web_lookup import get_web_lookup
-from modules.env_config import env_enabled
 
 # LLM endpoint/model: env-overridable, defaults to the home Ollama box.
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.152:11080/v1")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS")
 
+# Without max_tokens, llama.cpp/Ollama generate unbounded (num_predict=-1):
+# a degraded model repeats nonsense forever and the turn never returns.
+# Every completion gets a hard token cap. Reasoning ("thinking") tokens are
+# counted against this same budget, so it must comfortably exceed a think +
+# short JSON reply; the cap bounds degeneration, not the happy path.
+CHAT_MAX_TOKENS = env_int(os.environ, "CHAT_MAX_TOKENS", 2048, 64, 8192)
+
+
+def _turn_timeout_seconds() -> int:
+    """Wall-clock cap for one agent invocation. httpx read timeouts are
+    per-chunk, so a stream that keeps trickling tokens (degraded loop) or the
+    strands retry backoff can never trip them; working_on_it already bounds
+    itself with asyncio.wait_for, respond_in_chat must too."""
+    return env_int(os.environ, "CHAT_TURN_TIMEOUT_SECONDS", 300, 1, 900)
+
 
 def _make_model(temperature: float) -> OpenAIModel:
     # The OpenAI client requires a non-empty api_key even for local
-    # OpenAI-compatible servers that ignore it.
+    # OpenAI-compatible servers that ignore it. `timeout` is the httpx-level
+    # backstop; the per-turn asyncio.wait_for in respond_in_chat is the
+    # guard that actually fires against endless streams.
     return OpenAIModel(
         client_args={
             "api_key": os.getenv("OPENAI_API_KEY", "ollama"),
             "base_url": OLLAMA_BASE_URL,
+            "timeout": _turn_timeout_seconds(),
         },
         model_id=OLLAMA_MODEL,
-        params={"temperature": temperature},
+        params={"temperature": temperature, "max_tokens": CHAT_MAX_TOKENS},
     )
 
 
@@ -161,6 +181,13 @@ RETRY_FORMAT_DIRECTIVE = (
 # GIFs go through as-is and whether they animate is the server's business.
 MAX_VISION_IMAGES = 4
 MAX_VISION_IMAGE_BYTES = 8 * 1024 * 1024
+
+# Pixel/token budget: the per-image 8 MB cap says nothing about pixel count.
+# One 4000x3000 screenshot devours a llama.cpp context in vision tokens,
+# silently truncates the history the model needs, and the turn degrades into
+# endless nonsense - the exact "many images in channel history" failure.
+MAX_VISION_REENCODE_BYTES = 1024 * 1024
+
 VISION_CONTENT_TYPES = {
     "image/png": "png",
     "image/jpeg": "jpeg",
@@ -188,13 +215,76 @@ def _vision_enabled() -> bool:
     return env_enabled(os.environ, "CHAT_VISION_ENABLED")
 
 
+def _vision_max_dim() -> int:
+    """Longest-side pixel cap; images above it get downscaled before send."""
+    return env_int(os.environ, "CHAT_IMAGE_MAX_DIM", 1568, 256, 4096)
+
+
+def _vision_total_budget_bytes() -> int:
+    """Cap on the summed (re-encoded) bytes of all image blocks in one turn."""
+    return env_int(os.environ, "CHAT_IMAGE_TOTAL_BYTES", 4 * 1024 * 1024, 64 * 1024)
+
+
+# An 8 MB PNG can hide 100+ megapixels; refuse rather than decode one to
+# downscale it. Pillow's own bomb limit is a global monkey-patch this repo
+# does not take, so the ceiling below is checked after a lazy load.
+MAX_VISION_MAX_PIXELS = 40_000_000
+
+
+def _normalize_image_bytes(data: bytes, fmt: str) -> Tuple[bytes, str]:
+    """Downscale/re-encode an oversized image to fit the vision encoder's
+    token budget. Undecodable bytes pass through unchanged - the server
+    accepts or rejects them exactly as before this function existed.
+    Returns (b"", fmt) when the image must not be sent at all: decompression
+    bombs and megapixel outliers (callers treat empty bytes as skip).
+    Animated GIFs over the cap collapse to their first still frame (which is
+    all the vision encoder ever saw of them anyway).
+    Decoding is CPU- and memory-heavy: call via asyncio.to_thread, never
+    inline on the Discord event loop."""
+    max_dim = _vision_max_dim()
+    try:
+        image = Image.open(io.BytesIO(data))
+        image.load()
+    except Image.DecompressionBombError:
+        logging.warning("chat image exceeds Pillow pixel limit; skipping")
+        return b"", fmt
+    except Exception:
+        return data, fmt
+    w, h = image.size
+    if w * h > MAX_VISION_MAX_PIXELS:
+        logging.warning("chat image %dx%d over pixel budget; skipping", w, h)
+        return b"", fmt
+    if len(data) <= MAX_VISION_REENCODE_BYTES and max(w, h) <= max_dim:
+        return data, fmt
+    resized = max(w, h) > max_dim
+    if resized:
+        scale = max_dim / max(w, h)
+        image = image.resize((max(1, round(w * scale)), max(1, round(h * scale))))
+    has_alpha = image.mode in ("RGBA", "LA") or (
+        image.mode == "P" and "transparency" in image.info
+    )
+    out = io.BytesIO()
+    if fmt in ("jpeg", "jpg", "webp") and not has_alpha:
+        image.convert("RGB").save(out, "JPEG", quality=85)
+        new_fmt = "jpeg"
+    else:
+        image.save(out, "PNG")
+        new_fmt = "png"
+    out_bytes = out.getvalue()
+    if not out_bytes or (not resized and len(out_bytes) >= len(data)):
+        # re-encode bought nothing; keep what the server was getting
+        return data, fmt
+    return out_bytes, new_fmt
+
+
 async def _attachment_image_block(attachment):
     """Download one Discord attachment as a strands image block.
 
     Returns None for non-images, formats with no registered mime (see the
     add_type block above; kept as a last-line guard), oversized files
     (skipped without download), and failed downloads - one bad attachment
-    never sinks the turn."""
+    never sinks the turn. Images that pass are normalized
+    (_normalize_image_bytes) so their vision-token cost is bounded."""
     fmt = VISION_CONTENT_TYPES.get(attachment.content_type or "")
     if fmt and mimetypes.types_map.get(f".{fmt}") is None:
         fmt = None
@@ -209,6 +299,10 @@ async def _attachment_image_block(attachment):
         )
         return None
     if not data or len(data) > MAX_VISION_IMAGE_BYTES:
+        return None
+    # Pillow decode touches every pixel; keep it off the Discord event loop
+    data, fmt = await asyncio.to_thread(_normalize_image_bytes, data, fmt)
+    if not data:
         return None
     return {"image": {"format": fmt, "source": {"bytes": data}}}
 
@@ -257,11 +351,17 @@ async def respond_in_chat(message, bot_user, model=None):
     along as image content blocks when vision is enabled.
     Never raises for a bad reply: after three unparsable attempts the last
     transformed raw string is returned ("" if the model never answered).
-    A retry continues the SAME agent conversation with a reformat directive -
-    the model sees its own bad reply and the tool results stay in context,
-    instead of the whole agent (including another tool call cycle) being
-    rebuilt from scratch. If the inference server rejects an image payload,
-    the turn degrades once to a rebuilt text-only conversation."""
+    A PARSE retry continues the SAME agent conversation with a reformat
+    directive - the model sees its own bad reply and the tool results stay
+    in context, instead of the whole agent (including another tool call
+    cycle) being rebuilt from scratch. An invocation that never produced a
+    reply (exception or timeout) instead rebuilds the agent and re-asks the
+    real prompt: a canceled strands call can sit mid-exchange, and there is
+    no bad reply for a reformat directive to point at. Every invocation is
+    capped on wall clock (_turn_timeout_seconds): a degraded model streaming
+    tokens forever must never hold the Discord task hostage. If the inference
+    server rejects an image payload or wedges on it (timeout), the turn
+    degrades once to a rebuilt text-only conversation."""
     channel = await bot_user.fetch_channel(message.channel.id)
     history = [m async for m in channel.history(limit=100, before=message)]
     history.reverse()
@@ -304,12 +404,28 @@ async def respond_in_chat(message, bot_user, model=None):
     if include_images:
         for a in message.attachments:
             image_targets.append((a, trigger_blocks))
-    # newest attachments win when there are more than the per-turn cap
+    # newest attachments win when there are more than the per-turn cap, and
+    # the newest also claim the per-turn byte budget first (walk newest ->
+    # oldest, so dropping an image never drops the one nearest the trigger)
+    selected = image_targets[-MAX_VISION_IMAGES:]
+    kept_blocks = {}
+    budget = _vision_total_budget_bytes()
+    for i in range(len(selected) - 1, -1, -1):
+        block = await _attachment_image_block(selected[i][0])
+        if block is None:
+            continue
+        size = len(block["image"]["source"]["bytes"])
+        if size > budget:
+            logging.warning(
+                "chat image (%d bytes) over per-turn budget; skipping", size
+            )
+            continue
+        budget -= size
+        kept_blocks[i] = block
     image_blocks_added = 0
-    for attachment, content_list in image_targets[-MAX_VISION_IMAGES:]:
-        block = await _attachment_image_block(attachment)
-        if block is not None:
-            content_list.append(block)
+    for i, (_, content_list) in enumerate(selected):
+        if i in kept_blocks:
+            content_list.append(kept_blocks[i])
             image_blocks_added += 1
 
     tools = _enabled_tools()
@@ -330,25 +446,50 @@ async def respond_in_chat(message, bot_user, model=None):
                 "chat reply %d was not parseable JSON; asking the model to reformat", x
             )
             prompt = RETRY_FORMAT_DIRECTIVE
+        turn_timeout = _turn_timeout_seconds()
         try:
-            response = await agent.invoke_async(prompt)
+            response = await asyncio.wait_for(
+                agent.invoke_async(prompt), timeout=turn_timeout
+            )
             raw_text = _extract_text(response)
+        except asyncio.TimeoutError:
+            # a degraded model keeps trickling nonsense tokens forever and
+            # per-chunk httpx timeouts never fire against it: cut on the
+            # wall clock so the turn always comes back
+            logging.warning(
+                "chat agent invocation timed out after %ss (attempt %d)",
+                turn_timeout,
+                x + 1,
+            )
         except Exception:
             logging.exception("chat agent invocation failed (attempt %d)", x + 1)
-            if images_in_turn and not degraded_to_text:
-                # likely the server choking on the image payload (e.g. llama.cpp
-                # 400s on data URLs it cannot sniff): rebuild text-only once,
-                # free of charge - a still answer beats a silent bot
-                logging.warning("degrading chat turn to text-only after image failure")
-                degraded_to_text = True
-                past_chat_messages = _strip_image_blocks(past_chat_messages)
-                agent = None
-                prompt = trigger
-                continue
-            x += 1  # a model/server failure burns an attempt too
+        else:
+            msg, r = _parse_chat_reply(raw_text)
+            x += 1  # Increment counter to avoid infinite loop
             continue
-        msg, r = _parse_chat_reply(raw_text)
-        x += 1  # Increment counter to avoid infinite loop
+        # invocation failed (error or timeout): a fat image payload is the
+        # usual suspect (llama.cpp 400s on data URLs it cannot sniff, or
+        # wedges encoding a giant one): rebuild text-only once, free of
+        # charge - a still answer beats a silent bot
+        if images_in_turn and not degraded_to_text:
+            logging.warning("degrading chat turn to text-only after image failure")
+            degraded_to_text = True
+            past_chat_messages = _strip_image_blocks(past_chat_messages)
+            agent = None
+            prompt = trigger
+            continue
+        # a failed invocation produced no reply, so there is nothing for the
+        # reformat directive to point at, and a canceled strands call may
+        # have left agent.messages mid-exchange: rebuild the agent and
+        # re-ask the real prompt (minus images once degraded)
+        x += 1  # a model/server failure burns an attempt too
+        agent = None
+        prompt = (
+            trigger
+            if degraded_to_text or len(trigger_blocks) == 1
+            else trigger_blocks
+        )
+        continue
     if r is not None:
         return r
     return msg if isinstance(msg, str) else ""

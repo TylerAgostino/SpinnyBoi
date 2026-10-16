@@ -95,4 +95,4 @@ Wheel/standings tests launch headless Firefox, so a browser + geckodriver must b
 
 - **Image**: `Dockerfile` (python:3.12-slim + Firefox + geckodriver + ms core fonts).
 - **Host**: `docker_compose.yaml` defines the service and injects env/secrets; the container persists `/app/data` for the scheduler DB.
-- **CI/CD** (Drone): pushes to `main` run `build` (publishes `:latest`, only when Python/text/Dockerfile files change) then `deploy` (Portainer webhook), per `.drone.yml`; pull requests currently run no test job — the offline-suite test gate is added by PR #82.
+- **CI/CD** (Drone, see `.drone.yml`): pushes to any branch and pull requests run `test` (offline suite in `python:3.12-slim`, with `firefox-esr` + geckodriver provisioned for the browser-dependent wheel tests). `build` (publishes `:latest`, main only, and only when Python/text/Dockerfile files change) and `deploy` (Portainer webhook, main only) run strictly after it: `test → build → deploy`.

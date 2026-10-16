@@ -30,6 +30,10 @@ class iRacingAPIHandler(requests.Session):
     # OAuth endpoints
     OAUTH_TOKEN_URL = "https://oauth.iracing.com/oauth2/token"
 
+    # (connect, read) seconds for every request made through this session;
+    # callers may override by passing an explicit timeout=.
+    DEFAULT_TIMEOUT = (10, 60)
+
     def __init__(
         self,
         email: str,
@@ -135,6 +139,7 @@ class iRacingAPIHandler(requests.Session):
             self.OAUTH_TOKEN_URL,
             data=token_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=self.DEFAULT_TIMEOUT,
         )
 
         if response.status_code != 200:
@@ -198,6 +203,7 @@ class iRacingAPIHandler(requests.Session):
             self.OAUTH_TOKEN_URL,
             data=token_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=self.DEFAULT_TIMEOUT,
         )
 
         if response.status_code != 200:
@@ -279,6 +285,8 @@ class iRacingAPIHandler(requests.Session):
                 kwargs["headers"] = {}
             kwargs["headers"]["Authorization"] = f"Bearer {self.access_token}"
 
+        # One bounded seam: every self.get/self.post lands here.
+        kwargs.setdefault("timeout", self.DEFAULT_TIMEOUT)
         return super().request(method, url, *args, **kwargs)
 
     def _get_paged_data(

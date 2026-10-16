@@ -22,6 +22,9 @@ from modules import ChatHandler, WheelSpinner
 from modules.preset_source import PresetNotFound, PresetSource
 from modules.scheduler.scheduler import ScheduledEvent, Scheduler
 
+# Portainer webhook that (re)starts the session auditor container.
+AUDITOR_WEBHOOK_URL = "http://192.168.1.125:9996/api/stacks/webhooks/b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
+
 
 
 async def get_presets(a):
@@ -595,11 +598,26 @@ class WheelCog(commands.Cog):
 
     @wheel_command(needs_driver=False)
     async def spin_auditor(self, ctx, bot_response=None):
-        webhook_url = "http://192.168.1.125:9996/api/stacks/webhooks/b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
-        req = await asyncio.to_thread(requests.post, webhook_url)
-        logging.info("Request sent to webhook: %s", req.status_code)
+        try:
+            resp = await asyncio.to_thread(
+                requests.post, AUDITOR_WEBHOOK_URL, timeout=(5, 15)
+            )
+        except requests.RequestException:
+            logging.exception("Auditor webhook request failed")
+            return (
+                "I couldn't reach the auditor webhook, so it probably did not restart.",
+                None,
+                None,
+            )
+        logging.info("Auditor webhook responded: %s", resp.status_code)
+        if 200 <= resp.status_code < 300:
+            return (
+                "I've sent a request to restart the auditor. It should post shortly.",
+                None,
+                None,
+            )
         return (
-            "I've sent a request to restart the auditor. It should post shortly.",
+            f"The auditor webhook responded with {resp.status_code}; it may not have restarted.",
             None,
             None,
         )

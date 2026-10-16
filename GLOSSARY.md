@@ -47,11 +47,11 @@ leverage, locality) follows the `codebase-design` skill.
   explicit `SpinResult` (`result.winner`, `result.response`,
   `result.next_spin`), not hidden state read after `return_gif`.
 - **Scheduled spin** — a preset spin queued in SQLite by **Scheduler**
-  (`modules/scheduler/scheduler.py`); persistence is inline in the Scheduler
-  class (aiosqlite), DB path from `DATABASE_URL` (default
-  `sqlite:///data/spinny.db`). Handlers register by name
-  (`scheduler.register_handler`); jobs carry `(handler_name, data)` —
-  currently `spin_preset` (registered by `wheelCog`).
+  (`modules/scheduler/scheduler.py`); persistence is inline in the
+  Scheduler class over synchronous `sqlite3` connections, DB path from
+  `DATABASE_URL` (default `sqlite:///data/spinny.db`). Handlers register
+  by name (`scheduler.register_handler`); `ScheduledEvent.function_name`
+  routes dispatch — currently `spin_preset` (registered by `wheelCog`).
 
 ## Chat (strands)
 
@@ -82,11 +82,13 @@ leverage, locality) follows the `codebase-design` skill.
 ## Infra seams
 
 - **SheetsClient** (`modules/sheets_client.py`) — the deep Google Sheets
-  module: `available()`, `read_grid` / `read_rows` (rows as dicts;
-  `strip_id_quote()` strips the leading apostrophe Google echoes back),
-  `append_record`, `update_record`, `update_column_cells`, raising
-  `SheetsError` with the offending sheet id/config in the message. Owns
-  the google-api-client plumbing; credentials from
+  module: `available()`, `read_grid` (raises `SheetsError` naming the
+  tab; the spreadsheet id is not in the message), `read_rows` (rows as
+  dicts — but note it *swallows* `SheetsError` and returns `[]`),
+  `strip_id_quote()` strips the leading apostrophe Google echoes back,
+  `append_record` / `update_record` / `update_column_cells` raise
+  `SheetsError` describing the failed operation (and key/sheet name for
+  `update_record`). Owns the google-api-client plumbing; credentials from
   `GOOGLE_CREDENTIALS_FILE` / `GOOGLE_CREDENTIALS_JSON`.
 - **iRacing API handler** — `iRacingAPIHandler` (`modules/api.py`), a
   `requests.Session` subclass owning OAuth/legacy login and bounded API

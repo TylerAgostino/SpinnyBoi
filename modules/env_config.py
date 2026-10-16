@@ -13,6 +13,18 @@ log = logging.getLogger(__name__)
 FALSE_VALUES = {"0", "false", "off", "no"}
 
 
+class MissingEnvError(Exception):
+    """A required environment variable is unset or blank; args[0] is the key."""
+
+
+def require_env(env: Dict[str, str], key: str) -> str:
+    """Return the env value for ``key``; raise ``MissingEnvError(key)`` when unset or blank."""
+    raw = env.get(key) or ""
+    if not raw.strip():
+        raise MissingEnvError(key)
+    return raw
+
+
 def env_enabled(env: Dict[str, str], key: str, default: bool = True) -> bool:
     """True unless the env value spells a false word (case-insensitive)."""
     raw = (env.get(key) or "").strip().lower()

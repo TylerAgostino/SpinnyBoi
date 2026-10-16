@@ -7,7 +7,9 @@ import asyncio
 import os
 import tempfile
 import unittest
+from unittest import mock
 
+from modules.env_config import MissingEnvError
 from modules.preset_source import Preset, PresetNotFound, PresetSource
 
 PRESETS_CSV = (
@@ -76,6 +78,20 @@ class PresetSourceTests(unittest.TestCase):
     def test_read_tab_returns_option_frame(self):
         frame = asyncio.run(self.source.read_tab("anything"))
         self.assertEqual(list(frame["Fullname"]), ["Driver A", "Driver B"])
+
+
+class FromEnvTests(unittest.TestCase):
+    def test_missing_sheet_id_raises_named_error(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(MissingEnvError):
+                PresetSource.from_env()
+
+    def test_sheet_id_interpolated_into_urls(self):
+        with mock.patch.dict(os.environ, {"GSHEET_ID": "abc123"}):
+            source = PresetSource.from_env()
+        url = source._csv_url("presets")
+        self.assertIn("/d/abc123/", url)
+        self.assertNotIn("None", url)
 
 
 if __name__ == "__main__":

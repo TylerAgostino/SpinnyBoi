@@ -3,7 +3,14 @@ name: default
 type: docker
 
 steps:
+  - name: test
+    image: python:3.12-slim
+    commands:
+      - pip install --quiet -r requirements-dev.txt
+      - python -m pytest -q
   - name: build
+    depends_on:
+      - test
     image: plugins/docker
     settings:
       username:
@@ -20,13 +27,21 @@ steps:
       changeset:
         includes: [ "**/**.py", "**/**.txt", "**/Dockerfile" ]
   - name: deploy
+    depends_on:
+      - build
     image: plugins/webhook
     settings:
       urls: http://192.168.1.125:9996/api/stacks/webhooks/81cacdd6-d5ef-45cd-9983-cd3ff1f1058b
     when:
+      branch:
+        - main
       changeset:
         includes: [ "**/**.py", "**/**.txt", "**/docker_compose.yaml", "**/Dockerfile"  ]
 
 trigger:
+  event:
+    - push
+    - pull_request
   ref:
-    - refs/heads/main
+    - refs/heads/**
+    - refs/pull/*/merge

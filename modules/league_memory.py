@@ -15,10 +15,18 @@ Configuration is environment-driven (see ``VectorStoreConfig.from_env``):
     LEAGUE_VECTOR_TOP_K                 max snippets per query (default 5)
     LEAGUE_VECTOR_RELEVANCE_THRESHOLD   min cosine similarity (default 0.35)
     LEAGUE_VECTOR_MAX_CHUNK_CHARS       soft chunk size cap (default 700)
-    LEAGUE_VECTOR_HISTORY_SINCE         how far back to index: ISO date/datetime
-                                        (UTC when naive), a relative age (30d,
-                                        24h, 2w), or the oldest message id
-                                        (default: everything, all time)
+    LEAGUE_VECTOR_HISTORY_SINCE         default how far back to index: ISO date/
+                                        datetime (UTC when naive), a relative age
+                                        (30d, 24h, 2w), or the oldest message id
+                                        (unset: everything, all time)
+    LEAGUE_VECTOR_HISTORY_SINCE_<id>    per-channel override of the cutoff above
+                                        for channel <id> (e.g.
+                                        LEAGUE_VECTOR_HISTORY_SINCE_1234=90d)
+    LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL
+                                        the same per-channel overrides packed
+                                        into one key: "111=365d,222=2026-01-05"
+                                        (for env-allowlisted deploys; suffixed
+                                        keys win on collision)
 
 Indexing is launched as a background task (``LeagueMemory.start_indexing``) so
 it never blocks message handling.
@@ -28,7 +36,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import numpy as np
@@ -154,6 +162,54 @@ def parse_history_since(
     return HistoryCutoff(since=parsed)
 
 
+_HISTORY_SINCE_PREFIX = "LEAGUE_VECTOR_HISTORY_SINCE_"
+_HISTORY_SINCE_MAP_KEY = "LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL"
+
+
+def parse_channel_history_cutoffs(env: Dict[str, str]) -> Dict[int, HistoryCutoff]:
+    """Collect per-channel overrides from env, in two forms (suffixed keys win):
+
+    - ``LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL=111=365d,222=2026-01-05`` —
+      comma-separated ``channel_id=value`` pairs in one key, so deployments
+      with an explicit env allowlist (docker compose) can pass it through.
+    - ``LEAGUE_VECTOR_HISTORY_SINCE_<channel_id>`` suffixed keys.
+
+    Values parse exactly like ``parse_history_since``; blank or invalid ones
+    are skipped so that channel falls back to the shared default cutoff.
+    """
+    cutoffs: Dict[int, HistoryCutoff] = {}
+    for pair in (env.get(_HISTORY_SINCE_MAP_KEY) or "").split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        channel_part, sep, value = pair.partition("=")
+        channel_id = channel_part.strip()
+        if not sep or not channel_id.isdigit() or int(channel_id) <= 0:
+            log.warning(
+                "Invalid %s entry=%r (expected channel_id=value), skipping",
+                _HISTORY_SINCE_MAP_KEY,
+                pair,
+            )
+            continue
+        cutoff = parse_history_since(value.strip(), key=f"{_HISTORY_SINCE_MAP_KEY}:{channel_id}")
+        if cutoff is not None:
+            cutoffs[int(channel_id)] = cutoff
+    for key, raw in env.items():
+        if not key.startswith(_HISTORY_SINCE_PREFIX):
+            continue
+        suffix = key[len(_HISTORY_SINCE_PREFIX):]
+        if not suffix.isdigit():
+            continue  # the shared default key or unrelated env entries
+        channel_id = int(suffix)
+        if channel_id <= 0:
+            log.warning("Invalid %s (non-positive channel id), skipping", key)
+            continue
+        cutoff = parse_history_since(raw, key=key)
+        if cutoff is not None:
+            cutoffs[channel_id] = cutoff
+    return cutoffs
+
+
 @dataclass
 class VectorStoreConfig:
     channel_ids: Tuple[int, ...] = ()
@@ -164,10 +220,15 @@ class VectorStoreConfig:
     relevance_threshold: float = 0.35
     max_chunk_chars: int = 700
     history_cutoff: Optional[HistoryCutoff] = None
+    channel_history_cutoffs: Dict[int, HistoryCutoff] = field(default_factory=dict)
 
     @property
     def enabled(self) -> bool:
         return bool(self.channel_ids)
+
+    def cutoff_for(self, channel_id: int) -> Optional[HistoryCutoff]:
+        """Per-channel override for ``channel_id`` if set, else the shared default."""
+        return self.channel_history_cutoffs.get(channel_id, self.history_cutoff)
 
     @property
     def resolved_model(self) -> str:
@@ -208,6 +269,7 @@ class VectorStoreConfig:
             relevance_threshold=threshold,
             max_chunk_chars=max_chunk,
             history_cutoff=parse_history_since(env.get("LEAGUE_VECTOR_HISTORY_SINCE")),
+            channel_history_cutoffs=parse_channel_history_cutoffs(env),
         )
 
 
@@ -437,7 +499,9 @@ class LeagueMemory:
                         channel = await bot_user.fetch_channel(channel_id)
                     if channel is None:
                         raise LookupError("channel not found")
-                    messages = await self._collect_messages(channel)
+                    messages = await self._collect_messages(
+                        channel, self.config.cutoff_for(channel_id)
+                    )
                 except Exception:
                     failures += 1
                     log.exception("League memory: channel %s failed", channel_id)
@@ -478,14 +542,14 @@ class LeagueMemory:
         finally:
             self._indexing = False
 
-    async def _collect_messages(self, channel) -> List[Tuple[str, str, str]]:
+    async def _collect_messages(
+        self, channel, cutoff: Optional[HistoryCutoff]
+    ) -> List[Tuple[str, str, str]]:
         """Pull ``(author, timestamp, content)`` triples from one channel.
 
         discord.py walks history newest-first, so when a message falls before
-        ``config.history_cutoff`` the walk stops there and older pages are
-        never fetched.
+        ``cutoff`` the walk stops there and older pages are never fetched.
         """
-        cutoff = self.config.history_cutoff
         messages: List[Tuple[str, str, str]] = []
         async for m in channel.history(limit=None):
             if cutoff is not None and not cutoff.includes(m):

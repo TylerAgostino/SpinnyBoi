@@ -144,7 +144,7 @@ class ConfigTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# History cutoff parsing (LEAGUE_VECTOR_HISTORY_SINCE)
+# History cutoff parsing (LEAGUE_VECTOR_HISTORY_SINCE + per-channel overrides)
 # ---------------------------------------------------------------------------
 
 
@@ -196,6 +196,73 @@ class HistorySinceTests(unittest.TestCase):
             env={"LEAGUE_VECTOR_HISTORY_SINCE": "30d"}
         )
         self.assertEqual(cfg.history_cutoff.age, datetime.timedelta(days=30))
+
+    def test_channel_overrides_parsed_from_env(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={
+                "LEAGUE_VECTOR_HISTORY_SINCE": "30d",
+                "LEAGUE_VECTOR_HISTORY_SINCE_111": "365d",
+                "LEAGUE_VECTOR_HISTORY_SINCE_222": "2026-01-01",
+            }
+        )
+        self.assertEqual(cfg.history_cutoff.age, datetime.timedelta(days=30))
+        self.assertEqual(
+            cfg.channel_history_cutoffs[111].age, datetime.timedelta(days=365)
+        )
+        self.assertEqual(
+            cfg.channel_history_cutoffs[222].since,
+            datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        )
+
+    def test_channel_override_garbage_skipped(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={
+                "LEAGUE_VECTOR_HISTORY_SINCE": "30d",
+                "LEAGUE_VECTOR_HISTORY_SINCE_111": "",
+                "LEAGUE_VECTOR_HISTORY_SINCE_222": "whenever",
+                "LEAGUE_VECTOR_HISTORY_SINCE_zero": "30d",
+            }
+        )
+        self.assertEqual(cfg.channel_history_cutoffs, {})
+        self.assertEqual(cfg.history_cutoff.age, datetime.timedelta(days=30))
+
+    def test_cutoff_for_prefers_channel_override(self):
+        default = lm.HistoryCutoff(age=datetime.timedelta(days=30))
+        deeper = lm.HistoryCutoff(message_id=102)
+        cfg = lm.VectorStoreConfig(
+            history_cutoff=default, channel_history_cutoffs={111: deeper}
+        )
+        self.assertIs(cfg.cutoff_for(111), deeper)
+        self.assertIs(cfg.cutoff_for(999), default)
+
+    def test_channel_map_parsed_from_env(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={"LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL": "111=365d, 222=2026-01-01"}
+        )
+        self.assertEqual(
+            cfg.channel_history_cutoffs[111].age, datetime.timedelta(days=365)
+        )
+        self.assertEqual(
+            cfg.channel_history_cutoffs[222].since,
+            datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        )
+
+    def test_channel_map_invalid_pairs_skipped(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={"LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL": "111=,noeq,=30d,222=whenever"}
+        )
+        self.assertEqual(cfg.channel_history_cutoffs, {})
+
+    def test_suffixed_key_overrides_channel_map(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={
+                "LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL": "111=30d",
+                "LEAGUE_VECTOR_HISTORY_SINCE_111": "365d",
+            }
+        )
+        self.assertEqual(
+            cfg.channel_history_cutoffs[111].age, datetime.timedelta(days=365)
+        )
 
     def test_includes_is_inclusive_on_both_bounds(self):
         old, new = MagicMock(), MagicMock()
@@ -383,7 +450,7 @@ class HistoryCutoffIndexingTests(unittest.IsolatedAsyncioTestCase):
         m.id = message_id
         return m
 
-    def _bot_newest_first(self, specs):
+    def _channel_newest_first(self, specs):
         """``specs``: [(content, created_at, id)] oldest-first; history walks newest-first."""
 
         class HistIter:
@@ -401,9 +468,25 @@ class HistoryCutoffIndexingTests(unittest.IsolatedAsyncioTestCase):
         iterator = HistIter([self._message(*spec) for spec in reversed(specs)])
         channel = MagicMock()
         channel.history = MagicMock(return_value=iterator)
+        return channel, iterator
+
+    def _bot_newest_first(self, specs):
+        channel, iterator = self._channel_newest_first(specs)
         bot = MagicMock()
         bot.get_channel = MagicMock(return_value=channel)
         return bot, iterator
+
+    def _bot_channels(self, specs_by_id):
+        """``specs_by_id``: {channel id: oldest-first specs}; one walk per channel."""
+        channels = {}
+        walks = {}
+        for channel_id, specs in specs_by_id.items():
+            channel, iterator = self._channel_newest_first(specs)
+            channels[channel_id] = channel
+            walks[channel_id] = iterator
+        bot = MagicMock()
+        bot.get_channel = MagicMock(side_effect=lambda channel_id: channels.get(channel_id))
+        return bot, walks
 
     def _jan_messages(self, days):
         base = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
@@ -470,6 +553,53 @@ class HistoryCutoffIndexingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("1d ago", indexed)
         self.assertIn("10d ago", indexed)
         self.assertNotIn("100d ago", indexed)
+
+    async def test_channel_override_indexes_deeper_than_default(self):
+        specs = self._jan_messages([1, 2, 3, 4, 5])  # Jan 2 .. Jan 6
+        bot, walks = self._bot_channels({111: specs, 222: specs})
+        embedder = StubEmbedder()
+        mem = lm.LeagueMemory(
+            lm.VectorStoreConfig(
+                channel_ids=(111, 222),
+                history_cutoff=lm.HistoryCutoff(
+                    since=datetime.datetime(2026, 1, 5, tzinfo=datetime.timezone.utc)
+                ),
+                channel_history_cutoffs={
+                    111: lm.HistoryCutoff(
+                        since=datetime.datetime(2026, 1, 2, tzinfo=datetime.timezone.utc)
+                    )
+                },
+            ),
+            embedder=embedder,
+        )
+        self.assertEqual(await mem.index_channels(bot), 7)  # 5 via ch111's override + 2 via default
+        indexed = "\n".join(embedder.calls)
+        self.assertIn("day 0", indexed)  # Jan 2 is only reachable through ch111
+        self.assertEqual(len(walks[111].items), 0)  # ch111 walked down to the oldest message
+        self.assertEqual(len(walks[222].items), 2)  # default cutoff halted ch222 at Jan 4
+
+    async def test_each_channel_gets_its_own_cutoff(self):
+        specs = self._jan_messages([1, 2, 3, 4, 5])
+        bot, walks = self._bot_channels({111: specs, 222: specs})
+        embedder = StubEmbedder()
+        mem = lm.LeagueMemory(
+            lm.VectorStoreConfig(
+                channel_ids=(111, 222),
+                channel_history_cutoffs={
+                    111: lm.HistoryCutoff(message_id=103),
+                    222: lm.HistoryCutoff(
+                        since=datetime.datetime(2026, 1, 5, tzinfo=datetime.timezone.utc)
+                    ),
+                },
+            ),
+            embedder=embedder,
+        )
+        self.assertEqual(await mem.index_channels(bot), 4)  # 2 by message id + 2 by date
+        indexed = "\n".join(embedder.calls)
+        self.assertIn("day 3", indexed)  # id 103 (Jan 5) is inclusive on ch111
+        self.assertNotIn("day 0", indexed)  # neither channel reaches Jan 2
+        self.assertEqual(len(walks[111].items), 2)  # id 102 halted ch111's walk
+        self.assertEqual(len(walks[222].items), 2)  # Jan 4 halted ch222's walk
 
 
 # ---------------------------------------------------------------------------

@@ -68,6 +68,10 @@ leverage, locality) follows the `codebase-design` skill.
   queried by the chat agent (`league_memory.py`). How far back indexing
   reaches is set by **history cutoff** (`LEAGUE_VECTOR_HISTORY_SINCE`: ISO
   date, relative age like `30d`, or oldest message id; default all time).
+  `LEAGUE_VECTOR_HISTORY_SINCE_BY_CHANNEL` ("111=365d,222=2026-01-05", the
+  form docker compose passes through) or a `LEAGUE_VECTOR_HISTORY_SINCE_<channel_id>`
+  key overrides it per channel, so different channels can be indexed to
+  different depths in time.
 - **Web lookup** — embeddings-backed lookup (`web_lookup.py`, also over
   **memory_store**).
 

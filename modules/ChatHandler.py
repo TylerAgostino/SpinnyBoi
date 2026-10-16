@@ -6,6 +6,7 @@ import logging
 import mimetypes
 import os
 import random
+from datetime import timedelta
 from typing import Optional, Tuple
 
 from PIL import Image
@@ -363,7 +364,8 @@ async def respond_in_chat(message, bot_user, model=None):
     server rejects an image payload or wedges on it (timeout), the turn
     degrades once to a rebuilt text-only conversation."""
     channel = await bot_user.fetch_channel(message.channel.id)
-    history = [m async for m in channel.history(limit=100, before=message)]
+    max_age = message.created_at - timedelta(seconds=60 * 60 * 24 * 3)
+    history = [m async for m in channel.history(limit=100, before=message, after=max_age)]
     history.reverse()
     include_images = _vision_enabled()
     past_chat_messages = []

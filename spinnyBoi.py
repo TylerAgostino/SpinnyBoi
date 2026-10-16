@@ -73,8 +73,4 @@ bot.add_cog(ReactionsCog(bot))
 bot.add_cog(RegistrationCog(bot, config))
 bot.add_cog(StandingsCog(bot, config))
 bot.add_cog(AttendanceCog(bot, config))
-try:
-    bot_token = require_env(os.environ, "BOT_TOKEN")
-except MissingEnvError as exc:
-    raise SystemExit(f"Missing required environment variable: {exc}")
 bot.run(bot_token)

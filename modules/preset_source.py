@@ -25,6 +25,8 @@ from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
+from modules.env_config import require_env
+
 log = logging.getLogger(__name__)
 
 
@@ -72,7 +74,8 @@ class PresetSource:
 
     @classmethod
     def from_env(cls) -> "PresetSource":
-        base_url = f'https://docs.google.com/spreadsheets/d/{os.getenv("GSHEET_ID")}'
+        sheet_id = require_env(os.environ, "GSHEET_ID")
+        base_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
         return cls(
             lambda sheet: f"{base_url}/gviz/tq?tqx=out:csv&sheet={sheet}"
         )

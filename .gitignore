@@ -5,3 +5,7 @@ recording.gif
 .zed
 .venv
 creds.json
+credentials.json
+.env
+.env.*
+/data/

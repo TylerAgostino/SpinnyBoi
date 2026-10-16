@@ -2,7 +2,14 @@
 """Direct tests for the shared env-var parsing shapes in modules/env_config."""
 import unittest
 
-from modules.env_config import env_enabled, env_float, env_int, env_int_or_none
+from modules.env_config import (
+    MissingEnvError,
+    env_enabled,
+    env_float,
+    env_int,
+    env_int_or_none,
+    require_env,
+)
 
 
 class EnvEnabledTests(unittest.TestCase):
@@ -55,6 +62,20 @@ class EnvFloatTests(unittest.TestCase):
     def test_clamps_to_bounds(self):
         self.assertEqual(env_float({"X": "9"}, "X", 0.35, 0.0, 1.0), 1.0)
         self.assertEqual(env_float({"X": "-9"}, "X", 0.35, 0.0, 1.0), 0.0)
+
+
+class RequireEnvTests(unittest.TestCase):
+    def test_returns_value_when_set(self):
+        self.assertEqual(require_env({"TOKEN": "abc"}, "TOKEN"), "abc")
+
+    def test_unset_raises_named_error(self):
+        with self.assertRaises(MissingEnvError) as ctx:
+            require_env({}, "BOT_TOKEN")
+        self.assertIn("BOT_TOKEN", str(ctx.exception))
+
+    def test_blank_is_missing(self):
+        with self.assertRaises(MissingEnvError):
+            require_env({"TOKEN": "   "}, "TOKEN")
 
 
 if __name__ == "__main__":

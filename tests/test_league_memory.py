@@ -144,6 +144,79 @@ class ConfigTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# History cutoff parsing (LEAGUE_VECTOR_HISTORY_SINCE)
+# ---------------------------------------------------------------------------
+
+
+class HistorySinceTests(unittest.TestCase):
+    def test_unset_or_blank_indexes_all_time(self):
+        self.assertIsNone(lm.parse_history_since(None))
+        self.assertIsNone(lm.parse_history_since("   "))
+
+    def test_bare_date_becomes_midnight_utc(self):
+        cutoff = lm.parse_history_since("2026-01-01")
+        self.assertEqual(
+            cutoff.since,
+            datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        )
+        self.assertIsNone(cutoff.message_id)
+        self.assertIsNone(cutoff.age)
+
+    def test_datetime_offset_preserved_and_z_suffix_parsed(self):
+        offset = lm.parse_history_since("2026-01-01T12:00:00+02:00")
+        self.assertEqual(offset.since.utcoffset(), datetime.timedelta(hours=2))
+        zulu = lm.parse_history_since("2026-01-01T12:00:00Z")
+        self.assertEqual(zulu.since.utcoffset(), datetime.timedelta(0))
+
+    def test_relative_age_units(self):
+        cases = {
+            "30d": datetime.timedelta(days=30),
+            "24h": datetime.timedelta(hours=24),
+            "2w": datetime.timedelta(weeks=2),
+            "90m": datetime.timedelta(minutes=90),
+            "45s": datetime.timedelta(seconds=45),
+            "1.5 days": datetime.timedelta(days=1.5),
+        }
+        for raw, expected in cases.items():
+            cutoff = lm.parse_history_since(raw)
+            self.assertEqual(cutoff.age, expected, raw)
+            self.assertIsNone(cutoff.since, raw)
+            self.assertIsNone(cutoff.message_id, raw)
+
+    def test_all_digit_value_is_message_id(self):
+        cutoff = lm.parse_history_since("1234567890123456789")
+        self.assertEqual(cutoff.message_id, 1234567890123456789)
+
+    def test_garbage_yields_none(self):
+        for raw in ["whenever", "0", "-5", "30 months", "2026-13-40"]:
+            self.assertIsNone(lm.parse_history_since(raw), raw)
+
+    def test_from_env_loads_cutoff(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={"LEAGUE_VECTOR_HISTORY_SINCE": "30d"}
+        )
+        self.assertEqual(cfg.history_cutoff.age, datetime.timedelta(days=30))
+
+    def test_includes_is_inclusive_on_both_bounds(self):
+        old, new = MagicMock(), MagicMock()
+        old.id, new.id = 99, 100
+        old.created_at = datetime.datetime(2025, 12, 31, tzinfo=datetime.timezone.utc)
+        new.created_at = datetime.datetime(2026, 1, 1, 12, tzinfo=datetime.timezone.utc)
+        self.assertFalse(lm.HistoryCutoff(message_id=100).includes(old))
+        self.assertTrue(lm.HistoryCutoff(message_id=100).includes(new))
+        since = lm.HistoryCutoff(
+            since=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+        )
+        self.assertFalse(since.includes(old))
+        self.assertTrue(since.includes(new))
+        age = lm.HistoryCutoff(age=datetime.timedelta(days=1))
+        recent = MagicMock()
+        recent.created_at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=12)
+        self.assertFalse(age.includes(old))
+        self.assertTrue(age.includes(recent))
+
+
+# ---------------------------------------------------------------------------
 # Chunking
 # ---------------------------------------------------------------------------
 
@@ -298,6 +371,106 @@ class IndexingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await mem.index_channels(bot), 1)
         self.assertFalse(mem.indexed)  # 404 never resolved; retry on next startup
         self.assertTrue(mem.query("race times"))
+
+
+class HistoryCutoffIndexingTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _message(content, created_at, message_id):
+        m = MagicMock()
+        m.content = content
+        m.author.nick = m.author.name = "mod"
+        m.created_at = created_at
+        m.id = message_id
+        return m
+
+    def _bot_newest_first(self, specs):
+        """``specs``: [(content, created_at, id)] oldest-first; history walks newest-first."""
+
+        class HistIter:
+            def __init__(self, items):
+                self.items = items
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.items:
+                    return self.items.pop(0)
+                raise StopAsyncIteration
+
+        iterator = HistIter([self._message(*spec) for spec in reversed(specs)])
+        channel = MagicMock()
+        channel.history = MagicMock(return_value=iterator)
+        bot = MagicMock()
+        bot.get_channel = MagicMock(return_value=channel)
+        return bot, iterator
+
+    def _jan_messages(self, days):
+        base = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+        return [
+            (
+                f"announcement session day {i}",
+                base + datetime.timedelta(days=day),
+                100 + i,
+            )
+            for i, day in enumerate(days)
+        ]
+
+    async def test_message_id_cutoff_indexes_from_that_message(self):
+        bot, walk = self._bot_newest_first(self._jan_messages([1, 2, 3, 4, 5]))
+        embedder = StubEmbedder()
+        mem = lm.LeagueMemory(
+            lm.VectorStoreConfig(
+                channel_ids=(123,), history_cutoff=lm.HistoryCutoff(message_id=102)
+            ),
+            embedder=embedder,
+        )
+        self.assertEqual(await mem.index_channels(bot), 3)  # ids 102, 103, 104
+        indexed = "\n".join(embedder.calls)
+        self.assertIn("day 2", indexed)  # boundary message itself is indexed
+        self.assertNotIn("day 0", indexed)
+        self.assertNotIn("day 1", indexed)
+        self.assertEqual(len(walk.items), 1)  # id 100 never fetched; id 101 halted the walk
+
+    async def test_since_date_cutoff_is_inclusive_and_stops_the_walk(self):
+        bot, walk = self._bot_newest_first(self._jan_messages([1, 2, 3, 4, 5]))
+        embedder = StubEmbedder()
+        mem = lm.LeagueMemory(
+            lm.VectorStoreConfig(
+                channel_ids=(123,),
+                history_cutoff=lm.HistoryCutoff(
+                    since=datetime.datetime(2026, 1, 4, tzinfo=datetime.timezone.utc)
+                ),
+            ),
+            embedder=embedder,
+        )
+        self.assertEqual(await mem.index_channels(bot), 3)  # Jan 4, 5, 6
+        indexed = "\n".join(embedder.calls)
+        self.assertIn("day 2", indexed)  # day index 2 = Jan 4 (boundary included)
+        self.assertNotIn("day 1", indexed)
+        self.assertEqual(len(walk.items), 1)  # Jan 2 never fetched; Jan 3 halted the walk
+
+    async def test_age_cutoff_is_relative_to_index_time(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        specs = [
+            (f"announcement race times {days_ago}d ago", now - datetime.timedelta(days=days_ago), 100 + i)
+            for i, days_ago in enumerate([100, 10, 1])  # oldest-first specs
+        ]
+        bot, _walk = self._bot_newest_first(specs)
+        embedder = StubEmbedder()
+        mem = lm.LeagueMemory(
+            lm.VectorStoreConfig(
+                channel_ids=(123,),
+                history_cutoff=lm.HistoryCutoff(age=datetime.timedelta(days=30)),
+            ),
+            embedder=embedder,
+        )
+        self.assertEqual(await mem.index_channels(bot), 2)
+        indexed = "\n".join(embedder.calls)
+        self.assertIn("1d ago", indexed)
+        self.assertIn("10d ago", indexed)
+        self.assertNotIn("100d ago", indexed)
+
 
 # ---------------------------------------------------------------------------
 # LeagueMemory.query + tool surface

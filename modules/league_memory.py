@@ -15,6 +15,10 @@ Configuration is environment-driven (see ``VectorStoreConfig.from_env``):
     LEAGUE_VECTOR_TOP_K                 max snippets per query (default 5)
     LEAGUE_VECTOR_RELEVANCE_THRESHOLD   min cosine similarity (default 0.35)
     LEAGUE_VECTOR_MAX_CHUNK_CHARS       soft chunk size cap (default 700)
+    LEAGUE_VECTOR_HISTORY_SINCE         how far back to index: ISO date/datetime
+                                        (UTC when naive), a relative age (30d,
+                                        24h, 2w), or the oldest message id
+                                        (default: everything, all time)
 
 Indexing is launched as a background task (``LeagueMemory.start_indexing``) so
 it never blocks message handling.
@@ -22,6 +26,8 @@ it never blocks message handling.
 import asyncio
 import logging
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
 
@@ -64,6 +70,90 @@ def _parse_channel_ids(raw: Optional[str]) -> Tuple[int, ...]:
     return tuple(ids)
 
 
+_RELATIVE_AGE_RE = re.compile(
+    r"^(\d+(?:\.\d+)?)\s*"
+    r"(s|secs?|seconds|m|mins?|minutes|h|hrs?|hours|d|days?|w|wks?|weeks?)$"
+)
+_AGE_UNIT_KWARG = {
+    "s": "seconds", "sec": "seconds", "secs": "seconds", "seconds": "seconds",
+    "m": "minutes", "min": "minutes", "mins": "minutes", "minutes": "minutes",
+    "h": "hours", "hr": "hours", "hrs": "hours", "hours": "hours",
+    "d": "days", "day": "days", "days": "days",
+    "w": "weeks", "wk": "weeks", "wks": "weeks", "weeks": "weeks",
+}
+
+
+@dataclass(frozen=True)
+class HistoryCutoff:
+    """How far back to index; ``parse_history_since`` sets exactly one bound.
+
+    - ``since``: inclusive lower bound on message creation time.
+    - ``message_id``: inclusive lower bound on discord snowflake ids (ids are
+      time-ordered, so this indexes from that message forward).
+    - ``age``: relative window (``now - age``), resolved at every indexing run.
+    """
+
+    since: Optional[datetime] = None
+    message_id: Optional[int] = None
+    age: Optional[timedelta] = None
+
+    def includes(self, message) -> bool:
+        if self.message_id is not None:
+            return message.id >= self.message_id
+        if self.since is None and self.age is None:
+            return True
+        created = message.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if self.age is not None:
+            return created >= datetime.now(timezone.utc) - self.age
+        return created >= self.since
+
+
+def parse_history_since(
+    raw: Optional[str], key: str = "LEAGUE_VECTOR_HISTORY_SINCE"
+) -> Optional[HistoryCutoff]:
+    """Parse how far back to index: ISO date/datetime, relative age, or message id.
+
+    Accepted spellings (case-insensitive units): ``2026-01-01``,
+    ``2026-01-01T12:00:00-05:00``, ``30d``/``24h``/``2w``/``90m``, or an
+    all-digit discord message id. Unset/empty/garbage yields None (index all
+    time).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+
+    if raw.isdigit():
+        message_id = int(raw)
+        if message_id <= 0:
+            log.warning("Invalid %s=%r (non-positive message id), ignoring", key, raw)
+            return None
+        return HistoryCutoff(message_id=message_id)
+
+    match = _RELATIVE_AGE_RE.match(raw.lower())
+    if match:
+        amount = float(match.group(1))
+        if amount <= 0:
+            log.warning("Invalid %s=%r (non-positive age), ignoring", key, raw)
+            return None
+        return HistoryCutoff(age=timedelta(**{_AGE_UNIT_KWARG[match.group(2)]: amount}))
+
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00").replace("z", "+00:00"))
+    except ValueError:
+        log.warning(
+            "Invalid %s=%r; expected an ISO date/datetime, a relative age like "
+            "30d, or a message id. Indexing all time.",
+            key,
+            raw,
+        )
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return HistoryCutoff(since=parsed)
+
+
 @dataclass
 class VectorStoreConfig:
     channel_ids: Tuple[int, ...] = ()
@@ -73,6 +163,7 @@ class VectorStoreConfig:
     top_k: int = 5
     relevance_threshold: float = 0.35
     max_chunk_chars: int = 700
+    history_cutoff: Optional[HistoryCutoff] = None
 
     @property
     def enabled(self) -> bool:
@@ -116,6 +207,7 @@ class VectorStoreConfig:
             top_k=top_k,
             relevance_threshold=threshold,
             max_chunk_chars=max_chunk,
+            history_cutoff=parse_history_since(env.get("LEAGUE_VECTOR_HISTORY_SINCE")),
         )
 
 
@@ -323,7 +415,7 @@ class LeagueMemory:
         return self._embedder
 
     async def index_channels(self, bot_user) -> int:
-        """Read every message in the configured channels and embed them.
+        """Read messages inside the history window and embed them.
 
         ``bot_user`` is the discord.py Bot/User. Returns the total number of
         chunks indexed. Errors are logged, not raised, so one bad channel
@@ -387,9 +479,17 @@ class LeagueMemory:
             self._indexing = False
 
     async def _collect_messages(self, channel) -> List[Tuple[str, str, str]]:
-        """Pull ``(author, timestamp, content)`` triples from one channel."""
+        """Pull ``(author, timestamp, content)`` triples from one channel.
+
+        discord.py walks history newest-first, so when a message falls before
+        ``config.history_cutoff`` the walk stops there and older pages are
+        never fetched.
+        """
+        cutoff = self.config.history_cutoff
         messages: List[Tuple[str, str, str]] = []
         async for m in channel.history(limit=None):
+            if cutoff is not None and not cutoff.includes(m):
+                break
             if not m.content or not m.content.strip():
                 continue
             author = m.author.nick if getattr(m.author, "nick", None) else m.author.name

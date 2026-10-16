@@ -65,7 +65,9 @@ leverage, locality) follows the `codebase-design` skill.
   simracerhub.com aggressively rate-limits automated traffic.
 - **League memory** — in-memory vector store over the channels listed in
   `LEAGUE_VECTOR_CHANNEL_ID` (comma-separated), indexed at startup and
-  queried by the chat agent (`league_memory.py`).
+  queried by the chat agent (`league_memory.py`). How far back indexing
+  reaches is set by **history cutoff** (`LEAGUE_VECTOR_HISTORY_SINCE`: ISO
+  date, relative age like `30d`, or oldest message id; default all time).
 - **Web lookup** — embeddings-backed lookup (`web_lookup.py`, also over
   **memory_store**).
 

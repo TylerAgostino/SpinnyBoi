@@ -22,6 +22,8 @@ steps:
       tags: latest
       cache_from: "registry.hub.docker.com/tyleragostino/spinnyboi:latest"
     when:
+      event:
+        - push
       branch:
         - main
       changeset:
@@ -33,6 +35,8 @@ steps:
     settings:
       urls: http://192.168.1.125:9996/api/stacks/webhooks/81cacdd6-d5ef-45cd-9983-cd3ff1f1058b
     when:
+      event:
+        - push
       branch:
         - main
       changeset:
@@ -45,3 +49,4 @@ trigger:
   ref:
     - refs/heads/**
     - refs/pull/*/merge
+    - refs/pull/*/head

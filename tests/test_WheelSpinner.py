@@ -1,3 +1,6 @@
+import os
+import random
+import tempfile
 import unittest
 
 from modules import WheelSpinner
@@ -15,10 +18,15 @@ class TestWheelSpinner(unittest.TestCase):
         ]
         options = [_WheelOption(option, 1) for option in options_list]
         self.wheel = WheelSpinner.WheelSpinner(options)
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+
+    def _artifact(self, name):
+        return os.path.join(self.tmpdir.name, name)
 
     def test_spin(self):
         gif = self.wheel.return_gif()
-        with open("out.gif", "wb") as outfile:
+        with open(self._artifact("out.gif"), "wb") as outfile:
             gif.seek(0)
             outfile.write(gif.read())
 
@@ -32,7 +40,7 @@ class TestWheelSpinner(unittest.TestCase):
         )
         self.wheel = WheelSpinner.WheelSpinner(options)
         anim = self.wheel.animation
-        anim.save_svg("out.svg")
+        anim.save_svg(self._artifact("out.svg"))
 
     def test_quite_a_few(self):
         options = [_WheelOption(f"option {i}", 1) for i in range(20)]
@@ -44,7 +52,7 @@ class TestWheelSpinner(unittest.TestCase):
         )
         self.wheel = WheelSpinner.WheelSpinner(options)
         gif = self.wheel.return_gif()
-        with open("out.gif", "wb") as outfile:
+        with open(self._artifact("out.gif"), "wb") as outfile:
             gif.seek(0)
             outfile.write(gif.read())
 
@@ -54,12 +62,21 @@ class TestWheelSpinner(unittest.TestCase):
             _WheelOption("some really long fuckoff option with a bunch of text", 1)
         )
         self.wheel = WheelSpinner.WheelSpinner(options)
-        self.wheel.animation.save_svg("test.svg")
+        self.wheel.animation.save_svg(self._artifact("test.svg"))
 
     def test_probability(self):
         options = [_WheelOption("Rare", 1), _WheelOption("Normal", 9999)]
-        wheel = WheelSpinner.WheelSpinner(options)
-        assert wheel.weighted_options[0] == options[1]
+        wheel = WheelSpinner.WheelSpinner(options, rng=random.Random(42))
+        counts = {}
+        for option in wheel.repeated_options:
+            counts[option.option] = counts.get(option.option, 0) + 1
+        # Weighting lives in repeated_options: one slot per weight unit, so
+        # a uniform pick over slots gives P(Normal) = 9999/10000.
+        self.assertEqual(counts, {"Rare": 1, "Normal": 9999})
+        # Seeded rng makes the drawn slot (and thus the winner) deterministic.
+        self.assertEqual(wheel.winner.option, "Normal")
+        # shuffle() always moves the winner to the head of weighted_options.
+        self.assertIs(wheel.weighted_options[0], wheel.winner)
 
     def test_get_font_size(self):
         def add_line_breaks(text, soft_wrap=30):
@@ -109,7 +126,7 @@ class TestWheelSpinner(unittest.TestCase):
         ]
         wheel = WheelSpinner.WheelSpinner.create_spindex(options)
         file = wheel.return_gif()
-        with open("out.gif", "wb") as outfile:
+        with open(self._artifact("out.gif"), "wb") as outfile:
             file.seek(0)
             outfile.write(file.read())
 
@@ -117,6 +134,6 @@ class TestWheelSpinner(unittest.TestCase):
         options = [f"Fake Racer {n}" for n in range(1, 50)]
         wheel = WheelSpinner.WheelSpinner.create_spindex(options)
         file = wheel.return_gif()
-        with open("out.gif", "wb") as outfile:
+        with open(self._artifact("out.gif"), "wb") as outfile:
             file.seek(0)
             outfile.write(file.read())

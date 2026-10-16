@@ -16,11 +16,14 @@ a full run is a couple of requests spaced by the configured min interval.
 import os
 import unittest
 
+import pytest
+
 from modules.simracerhub import SimRacerHubClient, SimRacerHubConfig
 
 LIVE = os.environ.get("SIMRACERHUB_LIVE", "") == "1"
 
 
+@pytest.mark.live
 @unittest.skipUnless(LIVE, "set SIMRACERHUB_LIVE=1 to hit the real endpoints")
 class LiveSimRacerHubTests(unittest.TestCase):
     @classmethod

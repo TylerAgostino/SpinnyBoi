@@ -1,0 +1,78 @@
+from time import time
+import unittest
+from unittest import mock
+
+import requests
+
+from modules.api import iRacingAPIHandler
+
+
+def make_handler(use_oauth=False):
+    # __init__ auto-logins; keep the unit offline by stubbing the entry point.
+    with mock.patch.object(iRacingAPIHandler, "login", return_value=True):
+        return iRacingAPIHandler(
+            email="tester@example.com",
+            password="pw",
+            client_id="cid",
+            client_secret="csecret",
+            use_oauth=use_oauth,
+        )
+
+
+class RequestTimeoutTests(unittest.TestCase):
+    def test_default_timeout_injected(self):
+        handler = make_handler()
+        with mock.patch.object(
+            requests.Session, "request", return_value=mock.Mock()
+        ) as base:
+            handler.get("https://members-ng.iracing.com/api/x")
+        self.assertEqual(base.call_args.kwargs["timeout"], iRacingAPIHandler.DEFAULT_TIMEOUT)
+
+    def test_caller_timeout_not_overwritten(self):
+        handler = make_handler()
+        with mock.patch.object(
+            requests.Session, "request", return_value=mock.Mock()
+        ) as base:
+            handler.get("https://members-ng.iracing.com/api/x", timeout=3)
+        self.assertEqual(base.call_args.kwargs["timeout"], 3)
+
+
+class OAuthLoginTimeoutTests(unittest.TestCase):
+    def token_json(self):
+        return {
+            "access_token": "tok",
+            "refresh_token": "rtok",
+            "expires_in": 600,
+            "refresh_token_expires_in": 604800,
+        }
+
+    def test_password_limited_post_carries_timeout(self):
+        handler = make_handler(use_oauth=True)
+        handler.logged_in = False
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = self.token_json()
+        with mock.patch(
+            "modules.api.requests.post", return_value=resp
+        ) as posted:
+            handler._login_password_limited_flow()
+        self.assertEqual(
+            posted.call_args.kwargs["timeout"], iRacingAPIHandler.DEFAULT_TIMEOUT
+        )
+
+    def test_token_refresh_post_carries_timeout(self):
+        handler = make_handler(use_oauth=True)
+        handler.refresh_token = "rtok"
+        handler.refresh_token_expires_at = time() + 3600
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = self.token_json()
+        with mock.patch(
+            "modules.api.requests.post", return_value=resp
+        ) as posted:
+            handler._refresh_access_token()
+        self.assertEqual(
+            posted.call_args.kwargs["timeout"], iRacingAPIHandler.DEFAULT_TIMEOUT
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

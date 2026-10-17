@@ -2,7 +2,9 @@
 """Scheduler seam tests: every behavior through a Scheduler instance built
 on a temp database — nothing here touches data/spinny.db."""
 import asyncio
+import logging
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -108,6 +110,62 @@ class SchedulerTests(unittest.TestCase):
         executed = self._run(self.scheduler.run_due())
         self.assertEqual(executed, 0)
         self.assertEqual(len(self.scheduler.pending()), 1)  # retried next tick
+
+
+    def _attempts_of(self, event_id: int) -> int:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT attempts FROM scheduled_events WHERE id = ?", (event_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        return int(row[0])
+
+    def test_failures_stop_at_max_attempts_then_give_up(self):
+        calls: List[int] = []
+
+        async def boom(event):
+            calls.append(event.id)
+            raise RuntimeError("preset gone")
+
+        self.scheduler.register_handler("f", boom)
+        event_id = self.scheduler.schedule(time.time() - 1, "f", 1, 2)
+        for expected_attempts in (1, 2):
+            self._run(self.scheduler.run_due())
+            self.assertEqual(len(self.scheduler.pending()), 1)
+            self.assertEqual(self._attempts_of(event_id), expected_attempts)
+        with self.assertLogs(level=logging.ERROR) as logs:
+            self._run(self.scheduler.run_due())  # 3rd consecutive failure
+        self.assertIn("giving up", "\n".join(logs.output))
+        self.assertEqual(self.scheduler.pending(), [])  # never retried again
+        self.assertEqual(len(calls), Scheduler.MAX_ATTEMPTS)
+        self.assertEqual(self._attempts_of(event_id), Scheduler.MAX_ATTEMPTS)
+
+    def test_old_schema_db_gains_attempts_column(self):
+        old_db = os.path.join(self.temp_dir.name, "old.db")
+        conn = sqlite3.connect(old_db)
+        conn.execute(
+            "CREATE TABLE scheduled_events ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "timestamp REAL NOT NULL, function_name TEXT NOT NULL, "
+            "message_id INTEGER NOT NULL, channel_id INTEGER NOT NULL, "
+            "completed BOOLEAN NOT NULL DEFAULT 0, data TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO scheduled_events "
+            "(timestamp, function_name, message_id, channel_id) "
+            "VALUES (0.0, 'spin_preset', 1, 2)"
+        )
+        conn.commit()
+        conn.close()
+
+        migrated = Scheduler(old_db)
+
+        events = migrated.pending()
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].attempts, 0)
+
 
     def test_unregistered_function_is_completed_not_looped(self):
         self.scheduler.schedule(time.time() - 1, "nobody_home", 1, 2)

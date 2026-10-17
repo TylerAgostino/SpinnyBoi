@@ -1,0 +1,12 @@
+.git/
+.worktrees/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+*.pyc
+.venv*/
+tests/
+data/
+Dockerfile
+docker_compose.yaml
+.drone.yml

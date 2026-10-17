@@ -1,5 +1,7 @@
 # pyright: basic
 
+import logging
+
 import discord
 from discord.ext import commands
 
@@ -50,6 +52,6 @@ class IncidentCog(commands.Cog):
                 msg += f"\n:{yield_reactions.__next__()}: {r}"
             bot_response = await ctx.respond(msg)
             await reaction_manager.apply_reactions(bot_response)
-        except Exception as ex:
-            print(str(ex))
+        except Exception:
+            logging.exception("Incident summary failed")
             await ctx.respond("Something went wrong.")

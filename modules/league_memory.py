@@ -37,7 +37,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import numpy as np
 from strands import tool as strands_tool

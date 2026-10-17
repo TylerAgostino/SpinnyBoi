@@ -23,9 +23,11 @@ class iRacingAPIHandler(requests.Session):
     This class extends requests.Session to manage authentication and
     provide methods for retrieving and validating session data.
 
-    Supports two authentication flows:
-    - Legacy authentication (default, for backwards compatibility)
-    - OAuth 2.1 Password Limited Flow (for headless/Docker environments)
+    Authentication is always the OAuth 2.1 Password Limited Flow (login()
+    delegates to _login_password_limited_flow). The use_oauth flag does not
+    select an auth flow; it gates request() attaching the Bearer access
+    token and proactively refreshing it near expiry. Production builds
+    enable it via iracing_handler_from_env(use_oauth=True).
     """
 
     # OAuth endpoints
@@ -49,9 +51,13 @@ class iRacingAPIHandler(requests.Session):
         Args:
             email: iRacing account email
             password: iRacing account password
-            client_id: OAuth client ID (required if use_oauth=True)
-            client_secret: OAuth client secret (required if use_oauth=True)
-            use_oauth: If True, use OAuth 2.1 Password Limited Flow; if False, use legacy auth
+            client_id: OAuth client ID (required; login always uses the
+                OAuth 2.1 Password Limited Flow)
+            client_secret: OAuth client secret (required; login always uses
+                the OAuth 2.1 Password Limited Flow)
+            use_oauth: If True, request() attaches the Bearer access token
+                and proactively refreshes it near expiry. Login itself is
+                always the OAuth 2.1 Password Limited Flow regardless.
         """
         super().__init__()
 
@@ -211,42 +217,6 @@ class iRacingAPIHandler(requests.Session):
             raise Exception(f"Failed to refresh token: {response.text}")
 
         return self._process_token_response(response.json())
-
-    def _login_legacy(self) -> bool:
-        """
-        Log in to the iRacing API using legacy authentication.
-
-        Returns:
-            True if login is successful
-
-        Raises:
-            Exception: If authentication fails
-        """
-        url = "https://members-ng.iracing.com/auth"
-        login_headers = {"Content-Type": "application/json"}
-        data = {"email": self.email, "password": self.password}
-
-        response = self.post(url, json=data, headers=login_headers)
-        response_data = cast(
-            dict[str, Any],
-            response.json(),  # pyright: ignore[reportExplicitAny]
-        )
-
-        if response.status_code == 200 and response_data.get("authcode"):
-            # save the returned cookie
-            if response.cookies:
-                self.cookies.update(response.cookies)
-            self.logged_in = True
-            return True
-        elif (
-            "verificationRequired" in response.json()
-            and response.json()["verificationRequired"]
-        ):
-            raise Exception(
-                f"Please log in to the iRacing member site. {response_data}"
-            )
-        else:
-            raise Exception(f"Error from iRacing: {response_data}")
 
     def login(self) -> bool:
         return self._login_password_limited_flow()

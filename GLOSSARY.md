@@ -11,7 +11,7 @@ leverage, locality) follows the `codebase-design` skill.
   (`modules/league_config.py`) is the single source of every season-derived
   fact: default/seasons list, sheet tabs (`S15`..), stats series, staff role,
   season prompt. Built once at wiring time via `LeagueConfig.from_env()`;
-  `docker-compose.yaml` env vars override the baked defaults. A season flip is
+  `docker_compose.yaml` env vars override the baked defaults. A season flip is
   one edit here.
 - **Incident** — a rules-infraction poll run per race by `incidentCog`
   (in-memory poll state only; the summary feature is unwired).
@@ -23,8 +23,8 @@ leverage, locality) follows the `codebase-design` skill.
 - **Roster** — the season's signed-up drivers. **RegistrationRoster**
   (`modules/registration_roster.py`) is the roster DAO: read/register/update/
   drop, `roster_diff`, `is_registered`, and the pure
-  `penalty_prefix(member_display_name)` (`"Penalty: "` for existing roster
-  names).
+  `penalty_prefix(points)` (`` for fewer than 3 points or unparseable input;
+  `(X)`…`(XXXX)` parenthesized blocks at 3+, 6+, 9+, 12+).
 - **Attendance** — who ran which race, recorded per season from iRacing
   results by `attendanceCog` (`/mark_attendance`) into sheets via
   **SheetsClient**.

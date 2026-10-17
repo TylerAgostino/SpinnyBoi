@@ -1,8 +1,7 @@
 """Unit tests for the strands-agents invocation paths in modules/ChatHandler.
 
 These mock at the ``_make_agent`` boundary (the only place a strands Agent is
-constructed), so no LLM or Discord connection is required. The pre-existing
-tests/test_ChatHandler.py remains a live-Discord integration harness.
+constructed), so no LLM or Discord connection is required.
 
 Run: python -m unittest tests.test_ChatHandler_unit
 """

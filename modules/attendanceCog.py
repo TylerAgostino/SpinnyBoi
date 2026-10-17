@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Set
 import discord
 from discord.ext import commands
 
-from .api import iRacingAPIHandler, iracing_handler_from_env
+from .api import iRacingAPIHandler, shared_iracing_handler
 from .league_config import STAFF_ROLE_ID, LeagueConfig
 from .sheets_client import SheetsClient, SheetsError, strip_id_quote
 
@@ -35,9 +35,9 @@ class AttendanceCog(commands.Cog):
     # ------------------------------------------------------------------
 
     def _get_iracing_api(self) -> Optional[iRacingAPIHandler]:
-        """Lazily initialize and return the iRacing API handler."""
+        """The process-wide iRacing handler (see api.shared_iracing_handler)."""
         if self._iracing_api is None:
-            self._iracing_api = iracing_handler_from_env()
+            self._iracing_api = shared_iracing_handler()
         return self._iracing_api
 
     def _fetch_race_finishers(

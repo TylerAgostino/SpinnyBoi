@@ -385,3 +385,20 @@ def iracing_handler_from_env() -> Optional["iRacingAPIHandler"]:
     except Exception as ex:
         logging.error(f"Failed to initialize iRacing API handler: {ex}")
         return None
+
+
+_SHARED_HANDLER: Optional["iRacingAPIHandler"] = None
+
+
+def shared_iracing_handler() -> Optional["iRacingAPIHandler"]:
+    """Process-wide iRacing client.
+
+    Lazily builds via ``iracing_handler_from_env()`` and memoizes the
+    success case only: once authenticated, every caller shares one handler
+    (one login per process). An unconfigured or failed build is not cached,
+    so the next call retries.
+    """
+    global _SHARED_HANDLER
+    if _SHARED_HANDLER is None:
+        _SHARED_HANDLER = iracing_handler_from_env()
+    return _SHARED_HANDLER

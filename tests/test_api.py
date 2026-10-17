@@ -74,5 +74,55 @@ class OAuthLoginTimeoutTests(unittest.TestCase):
         )
 
 
+class SharedHandlerTests(unittest.TestCase):
+    """api.shared_iracing_handler is a process-wide lazy singleton."""
+
+    def setUp(self):
+        import modules.api as api
+
+        self.api = api
+        self._saved = api._SHARED_HANDLER
+        api._SHARED_HANDLER = None
+
+    def tearDown(self):
+        self.api._SHARED_HANDLER = self._saved
+
+    def test_handler_built_once_across_calls(self):
+        sentinel = object()
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", return_value=sentinel
+        ) as build:
+            self.assertIs(self.api.shared_iracing_handler(), sentinel)
+            self.assertIs(self.api.shared_iracing_handler(), sentinel)
+        self.assertEqual(build.call_count, 1)
+
+    def test_failed_build_is_not_cached(self):
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", return_value=None
+        ) as build:
+            self.assertIsNone(self.api.shared_iracing_handler())
+            self.assertIsNone(self.api.shared_iracing_handler())
+        self.assertEqual(build.call_count, 2)
+
+    def test_both_cogs_get_the_same_handler(self):
+        from types import SimpleNamespace
+
+        from modules.attendanceCog import AttendanceCog
+        from modules.registrationCog import RegistrationCog
+
+        sentinel = object()
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", return_value=sentinel
+        ):
+            attendance = AttendanceCog._get_iracing_api(
+                SimpleNamespace(_iracing_api=None)
+            )
+            registration = RegistrationCog._get_iracing_api(
+                SimpleNamespace(_iracing_api=None)
+            )
+        self.assertIs(attendance, sentinel)
+        self.assertIs(registration, sentinel)
+
+
 if __name__ == "__main__":
     unittest.main()

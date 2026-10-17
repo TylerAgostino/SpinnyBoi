@@ -74,5 +74,100 @@ class OAuthLoginTimeoutTests(unittest.TestCase):
         )
 
 
+class SharedHandlerTests(unittest.TestCase):
+    """api.shared_iracing_handler is a process-wide lazy singleton."""
+
+    def setUp(self):
+        import modules.api as api
+
+        self.api = api
+        self._saved = api._SHARED_HANDLER
+        api._SHARED_HANDLER = None
+
+    def tearDown(self):
+        self.api._SHARED_HANDLER = self._saved
+
+    def test_handler_built_once_across_calls(self):
+        sentinel = object()
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", return_value=sentinel
+        ) as build:
+            self.assertIs(self.api.shared_iracing_handler(), sentinel)
+            self.assertIs(self.api.shared_iracing_handler(), sentinel)
+        self.assertEqual(build.call_count, 1)
+
+    def test_failed_build_is_not_cached(self):
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", return_value=None
+        ) as build:
+            self.assertIsNone(self.api.shared_iracing_handler())
+            self.assertIsNone(self.api.shared_iracing_handler())
+        self.assertEqual(build.call_count, 2)
+
+    def test_both_cogs_share_one_construction(self):
+        from types import SimpleNamespace
+
+        from modules.attendanceCog import AttendanceCog
+        from modules.registrationCog import RegistrationCog
+
+        built = [object(), object()]
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", side_effect=built
+        ) as build:
+            attendance = AttendanceCog._get_iracing_api(
+                SimpleNamespace(_iracing_api=None)
+            )
+            registration = RegistrationCog._get_iracing_api(
+                SimpleNamespace(_iracing_api=None)
+            )
+        self.assertEqual(build.call_count, 1)
+        self.assertIs(attendance, registration)
+        self.assertIs(attendance, built[0])
+
+    def test_concurrent_first_calls_build_once(self):
+        import threading
+        from time import sleep
+
+        def slow_build():
+            sleep(0.05)
+            return object()
+
+        results = []
+        start = threading.Barrier(4)
+
+        def worker():
+            start.wait()
+            results.append(self.api.shared_iracing_handler())
+
+        with mock.patch.object(
+            self.api, "iracing_handler_from_env", side_effect=slow_build
+        ) as build:
+            threads = [threading.Thread(target=worker) for _ in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(len(results), 4)
+        self.assertTrue(all(r is results[0] for r in results))
+
+    def test_injected_handlers_bypass_the_singleton(self):
+        from modules.attendanceCog import AttendanceCog
+        from modules.league_config import LeagueConfig
+        from modules.registrationCog import RegistrationCog
+
+        fake_a, fake_r = object(), object()
+        config = LeagueConfig.from_env()
+        attendance = AttendanceCog(bot=None, config=config, iracing_api=fake_a)
+        registration = RegistrationCog(
+            bot=None, config=config, iracing_api=fake_r
+        )
+        with mock.patch.object(self.api, "iracing_handler_from_env") as build:
+            self.assertIs(attendance._get_iracing_api(), fake_a)
+            self.assertIs(registration._get_iracing_api(), fake_r)
+        build.assert_not_called()
+        self.assertIsNone(self.api._SHARED_HANDLER)
+
+
 if __name__ == "__main__":
     unittest.main()

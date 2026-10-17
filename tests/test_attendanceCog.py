@@ -193,7 +193,7 @@ class FetchRaceFinishersTests(_Fixture):
     def test_missing_credentials_are_reported(self):
         cog = self.make_cog({}, sheet_id=SHEET_ID)
         cog._iracing_api = None
-        with patch("modules.attendanceCog.iracing_handler_from_env", return_value=None):
+        with patch("modules.attendanceCog.shared_iracing_handler", return_value=None):
             with self.assertRaisesRegex(Exception, "iRacing API is not available"):
                 cog._fetch_race_finishers(1)
 

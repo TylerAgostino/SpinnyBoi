@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import discord
 from discord.ext import commands
 
-from .api import iRacingAPIHandler, iracing_handler_from_env
+from .api import iRacingAPIHandler, shared_iracing_handler
 from .league_config import LeagueConfig
 from .registration_roster import RegistrationRoster, match_user, registration_status
 from .sheets_client import SheetsClient, SheetsError
@@ -24,7 +24,11 @@ class RegistrationCog(commands.Cog):
     """
 
     def __init__(
-        self, bot, config: LeagueConfig, sheets: Optional[SheetsClient] = None
+        self,
+        bot,
+        config: LeagueConfig,
+        sheets: Optional[SheetsClient] = None,
+        iracing_api: Optional[iRacingAPIHandler] = None,
     ):
         self.bot = bot
         self.config = config
@@ -35,7 +39,8 @@ class RegistrationCog(commands.Cog):
             os.getenv("REGISTRATION_SHEET_ID"),
             config.registration_sheet_name,
         )
-        self._iracing_api: Optional[iRacingAPIHandler] = None
+        # Injected handlers bypass the process-wide singleton entirely.
+        self._iracing_api: Optional[iRacingAPIHandler] = iracing_api
         # Cached user list so /register can answer with its modal within
         # Discord's 3-second interaction window instead of waiting on the
         # (blocking) Sheets API. Writes invalidate it; reads refresh it.
@@ -255,9 +260,9 @@ class RegistrationCog(commands.Cog):
         return True
 
     def _get_iracing_api(self) -> Optional[iRacingAPIHandler]:
-        """Lazily initialize and return the iRacing API handler."""
+        """The process-wide iRacing handler (see api.shared_iracing_handler)."""
         if self._iracing_api is None:
-            self._iracing_api = iracing_handler_from_env()
+            self._iracing_api = shared_iracing_handler()
         return self._iracing_api
 
     def _driver_name_sync(self, cust_id: int) -> Optional[str]:
@@ -342,7 +347,7 @@ class RegistrationCog(commands.Cog):
         """
         await ctx.defer()
         registered_drivers = await self.read_users()
-        handler = iracing_handler_from_env()
+        handler = self._get_iracing_api()
         if handler is None:
             await ctx.respond(
                 "iRacing API is not configured. Check the IRACING_* credentials.",

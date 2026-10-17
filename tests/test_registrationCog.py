@@ -472,7 +472,7 @@ class NameLookupTests(_CogFixture):
         cog = self.make_cog(store)
         cog._iracing_api = None  # force the lazy factory path
         factory = MagicMock(return_value=None)
-        with patch("modules.registrationCog.iracing_handler_from_env", factory):
+        with patch("modules.registrationCog.shared_iracing_handler", factory):
             with self.assertLogs(level=logging.WARNING) as logs:
                 self.assertIsNone(cog._driver_name_sync(IRACING_ID))
         factory.assert_called_once_with()
@@ -484,7 +484,7 @@ class NameLookupTests(_CogFixture):
         cog._iracing_api = None
         handler = FakeIRacing(name="Once Only")
         factory = MagicMock(return_value=handler)
-        with patch("modules.registrationCog.iracing_handler_from_env", factory):
+        with patch("modules.registrationCog.shared_iracing_handler", factory):
             self.assertEqual(cog._driver_name_sync(1), "Once Only")
             self.assertEqual(cog._driver_name_sync(2), "Once Only")
         factory.assert_called_once_with()
@@ -542,8 +542,9 @@ class CacheAndWriterTests(_CogFixture):
 class CheckRegistrationsTests(_CogFixture):
     def test_reports_missing_iracing_credentials(self):
         cog = self.make_cog(_store())
+        cog._iracing_api = None  # force the lazy factory path
         ctx = _Ctx()
-        with patch("modules.registrationCog.iracing_handler_from_env", return_value=None):
+        with patch("modules.registrationCog.shared_iracing_handler", return_value=None):
             asyncio.run(RegistrationCog.check_registrations.callback(cog, ctx))
         self.assertTrue(ctx.deferred)
         self.assertEqual(
@@ -559,16 +560,13 @@ class CheckRegistrationsTests(_CogFixture):
             ["98", "30", "Cy", "9", "Cy", "9", "2026-01-01 00:00:00", ""],
             ["97", "40", "Unregistered", "9", "Unregistered", "10", "", ""],
         ]
-        cog = self.make_cog(_store(rows))
         handler = FakeIRacing(
             members=[{"cust_id": 10, "nick_name": "Al", "car_number": "8"}],
             pending=[{"cust_id": 30}],
         )
+        cog = self.make_cog(_store(rows), iracing=handler)
         ctx = _Ctx()
-        with patch(
-            "modules.registrationCog.iracing_handler_from_env", return_value=handler
-        ):
-            asyncio.run(RegistrationCog.check_registrations.callback(cog, ctx))
+        asyncio.run(RegistrationCog.check_registrations.callback(cog, ctx))
 
         self.assertTrue(ctx.deferred)
         self.assertEqual(
@@ -589,15 +587,12 @@ class CheckRegistrationsTests(_CogFixture):
         rows = [
             [str(DISCORD_ID), "10", "Al", "9", "Al", "7", "2026-01-01 00:00:00", ""],
         ]
-        cog = self.make_cog(_store(rows))
         handler = FakeIRacing(
             members=[{"cust_id": 10, "nick_name": "Al", "car_number": "7"}]
         )
+        cog = self.make_cog(_store(rows), iracing=handler)
         ctx = _Ctx()
-        with patch(
-            "modules.registrationCog.iracing_handler_from_env", return_value=handler
-        ):
-            asyncio.run(RegistrationCog.check_registrations.callback(cog, ctx))
+        asyncio.run(RegistrationCog.check_registrations.callback(cog, ctx))
         embed = _embeds(ctx)[0]
         # A clean sweep leaves exactly one field; the "All registrations are
         # valid." fallback below the fields can never fire (see report).

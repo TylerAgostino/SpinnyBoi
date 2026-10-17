@@ -92,9 +92,11 @@ leverage, locality) follows the `codebase-design` skill.
   `GOOGLE_CREDENTIALS_FILE` / `GOOGLE_CREDENTIALS_JSON`.
 - **iRacing API handler** — `iRacingAPIHandler` (`modules/api.py`), a
   `requests.Session` subclass owning OAuth/legacy login and bounded API
-  calls; built from env by `iracing_handler_from_env()` and lazily cached
-  per-cog by `attendanceCog` and `registrationCog` (a
-  consolidation to a shared singleton is tracked as a follow-up).
+  calls. One client per process: `shared_iracing_handler()` builds lazily
+  via `iracing_handler_from_env()` under a lock (success memoized; failed
+  builds retry). `attendanceCog`/`registrationCog` delegate their
+  `_get_iracing_api` to it and accept `iracing_api=` constructor
+  injection that bypasses the global (tests use this seam).
   `standingsCog`/`wheelCog` do not use it.
 - **DB paths** — scheduler SQLite via `DATABASE_URL`
   (`sqlite:///data/spinny.db` default); the only env-selected DB today.

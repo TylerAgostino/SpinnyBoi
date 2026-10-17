@@ -24,7 +24,11 @@ class RegistrationCog(commands.Cog):
     """
 
     def __init__(
-        self, bot, config: LeagueConfig, sheets: Optional[SheetsClient] = None
+        self,
+        bot,
+        config: LeagueConfig,
+        sheets: Optional[SheetsClient] = None,
+        iracing_api: Optional[iRacingAPIHandler] = None,
     ):
         self.bot = bot
         self.config = config
@@ -35,7 +39,8 @@ class RegistrationCog(commands.Cog):
             os.getenv("REGISTRATION_SHEET_ID"),
             config.registration_sheet_name,
         )
-        self._iracing_api: Optional[iRacingAPIHandler] = None
+        # Injected handlers bypass the process-wide singleton entirely.
+        self._iracing_api: Optional[iRacingAPIHandler] = iracing_api
         # Cached user list so /register can answer with its modal within
         # Discord's 3-second interaction window instead of waiting on the
         # (blocking) Sheets API. Writes invalidate it; reads refresh it.

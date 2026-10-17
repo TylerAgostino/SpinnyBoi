@@ -9,6 +9,7 @@ import base64
 import logging
 import os
 import hashlib
+import threading
 from time import time
 from typing import Any, Optional, cast
 
@@ -388,17 +389,23 @@ def iracing_handler_from_env() -> Optional["iRacingAPIHandler"]:
 
 
 _SHARED_HANDLER: Optional["iRacingAPIHandler"] = None
+_SHARED_LOCK = threading.Lock()
 
 
 def shared_iracing_handler() -> Optional["iRacingAPIHandler"]:
     """Process-wide iRacing client.
 
-    Lazily builds via ``iracing_handler_from_env()`` and memoizes the
-    success case only: once authenticated, every caller shares one handler
-    (one login per process). An unconfigured or failed build is not cached,
-    so the next call retries.
+    Lazily builds via ``iracing_handler_from_env()`` with the
+    check/build/assign guarded by ``_SHARED_LOCK``: cogs may first-call
+    from separate ``asyncio.to_thread`` workers, and an unsynchronized
+    check-then-build would log in twice and discard the loser. Only the
+    success case is memoized — an unconfigured or failed build is not
+    cached, so the next call retries.
     """
     global _SHARED_HANDLER
-    if _SHARED_HANDLER is None:
-        _SHARED_HANDLER = iracing_handler_from_env()
-    return _SHARED_HANDLER
+    if _SHARED_HANDLER is not None:
+        return _SHARED_HANDLER
+    with _SHARED_LOCK:
+        if _SHARED_HANDLER is None:
+            _SHARED_HANDLER = iracing_handler_from_env()
+        return _SHARED_HANDLER

@@ -21,13 +21,18 @@ class AttendanceCog(commands.Cog):
     """
 
     def __init__(
-        self, bot, config: LeagueConfig, sheets: Optional[SheetsClient] = None
+        self,
+        bot,
+        config: LeagueConfig,
+        sheets: Optional[SheetsClient] = None,
+        iracing_api: Optional[iRacingAPIHandler] = None,
     ):
         self.bot = bot
         self.config = config
         self.spreadsheet_id = os.getenv("ATTENDANCE_SHEET_ID")
         self.sheets = sheets or SheetsClient.from_env()
-        self._iracing_api: Optional[iRacingAPIHandler] = None
+        # Injected handlers bypass the process-wide singleton entirely.
+        self._iracing_api: Optional[iRacingAPIHandler] = iracing_api
 
 
     # ------------------------------------------------------------------

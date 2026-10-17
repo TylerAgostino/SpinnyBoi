@@ -4,26 +4,37 @@ import logging
 import random
 
 
+def parse_reaction_lines(reactions):
+    """Build trigger-key -> emote ids from reactions.txt lines.
+
+    A line must have a non-empty key and at least one non-empty emote id;
+    malformed lines are skipped with a warning. An empty key would match
+    every message via str.find(), which is exactly what this prevents.
+    For duplicate keys, the last line wins (as before).
+    """
+    reaction_dict = {}
+    for line_number, reaction in enumerate(reactions, start=1):
+        try:
+            tup = [field.strip() for field in reaction.split(",")]
+            reaction_key = tup[0].lower()
+            emote_ids = [emote for emote in tup[1:] if emote]
+            if not reaction_key or not emote_ids:
+                logging.warning(
+                    f"Skipping malformed reaction line {line_number}: {reaction!r}"
+                )
+                continue
+            reaction_dict[reaction_key] = emote_ids
+        except Exception as e:
+            logging.error("Something went wrong: " + str(e))
+    return reaction_dict
+
+
 class ReactionsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        reactions_file = open("reactions.txt", "r", encoding="utf-8")
-        reactions = reactions_file.readlines()
-        reaction_dict = {}
-        for reaction in reactions:
-            try:
-                tup = reaction.split(",")
-                reaction_key = tup[0].lower()
-                reaction_dict[reaction_key] = []
-                for emote_id in tup[1:]:
-                    reaction_dict[reaction_key].append(emote_id.strip())
-            except IndexError:
-                logging.error("Invalid reaction line: " + reaction)
-                logging.error("Its probably Brian's fault")
-            except Exception as e:
-                logging.error("Something went wrong: " + str(e))
-        reactions_file.close()
-        self.reaction_dict = reaction_dict
+        with open("reactions.txt", "r", encoding="utf-8") as reactions_file:
+            reactions = reactions_file.readlines()
+        self.reaction_dict = parse_reaction_lines(reactions)
 
     @commands.Cog.listener()
     async def on_message(self, message):

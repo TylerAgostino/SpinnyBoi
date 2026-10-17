@@ -25,8 +25,9 @@ leverage, locality) follows the `codebase-design` skill.
   drop, `roster_diff`, `is_registered`, and the pure
   `penalty_prefix(member_display_name)` (`"Penalty: "` for existing roster
   names).
-- **Attendance** — per-season sign-ups (`attendanceCog`, sheets via
-  **SheetsClient**).
+- **Attendance** — who ran which race, recorded per season from iRacing
+  results by `attendanceCog` (`/mark_attendance`) into sheets via
+  **SheetsClient**.
 
 ## Wheel & presets
 
@@ -45,24 +46,27 @@ leverage, locality) follows the `codebase-design` skill.
   `random.Random`-like object for deterministic spins); the outcome is the
   explicit `SpinResult` (`result.winner`, `result.response`,
   `result.next_spin`), not hidden state read after `return_gif`.
-- **Scheduled spin** — a preset spin queued in SQLite by **Scheduler**;
-  persistence goes through the **EventStore** seam
-  (`modules/scheduler/store.py`; `SQLiteEventStore` in production). Handlers
-  register by name (`scheduler.register_handler`); jobs carry
-  `(handler_name, data)` — currently `wheel`, `role_prompt`, `message`.
+- **Scheduled spin** — a preset spin queued in SQLite by **Scheduler**
+  (`modules/scheduler/scheduler.py`); persistence is inline in the
+  Scheduler class over synchronous `sqlite3` connections, DB path from
+  `DATABASE_URL` (default `sqlite:///data/spinny.db`). Handlers register
+  by name (`scheduler.register_handler`); `ScheduledEvent.function_name`
+  routes dispatch — currently `spin_preset` (registered by `wheelCog`).
 
-## Chat (LangChain/strands)
+## Chat (strands)
 
-- **Turn** — `ChatHandler.respond_in_chat`: one chat-message → reply exchange
-  with injected `ChatModel` deps and an explicit `disabled_tools` protocol
-  (no bare-`KeyError` control flow).
-- **Tool frame** — `modules/tool_frame.py`: the shared construction wrapper
-  for the three chat tools. **ToolAdapter** names the seam; the adapters are
-  `simracershub` (SimRacingHistory HTTP), `web_lookup` (ChromaDB embeddings),
-  and `league_memory` (see below). One `ToolFrame.make_embedder()` fixes the
-  per-tool `OPENAI_API_KEY` bug. The SRH client self-polices (paced fetches,
-  backoff retries honouring `Retry-After`, short payload-cache TTL) because
-  simracerhub.com aggressively rate-limits automated traffic.
+- **Turn** — `ChatHandler.respond_in_chat(message, bot_user, model=None)`:
+  one chat-message → reply exchange; `model` injects a model double in
+  tests, and a tool is "disabled" by its adapter getter returning `None`
+  (env flags like `WEB_LOOKUP_ENABLED`), not by control-flow exceptions.
+- **Chat tool** — no shared construction frame module exists;
+  `ChatHandler._enabled_tools()` collects tools straight from the adapter
+  singletons — `league_memory` (`lookup_tool`), `web_lookup`
+  (`lookup_tool`), `simracerhub` (`stats_tool`). An unconfigured or broken
+  adapter is logged and skipped: a dead tool never kills the reply.
+  The SRH client self-polices (paced fetches, backoff retries honouring
+  `Retry-After`, short payload-cache TTL) because simracerhub.com
+  aggressively rate-limits automated traffic.
 - **League memory** — in-memory vector store over the channels listed in
   `LEAGUE_VECTOR_CHANNEL_ID` (comma-separated), indexed at startup and
   queried by the chat agent (`league_memory.py`). How far back indexing
@@ -72,16 +76,25 @@ leverage, locality) follows the `codebase-design` skill.
   form docker compose passes through) or a `LEAGUE_VECTOR_HISTORY_SINCE_<channel_id>`
   key overrides it per channel, so different channels can be indexed to
   different depths in time.
-- **Web lookup** — embeddings-backed lookup (`web_lookup.py`, also over
-  **memory_store**).
+- **Web lookup** — live search/fetch adapter (`web_lookup.py`) behind a
+  `fetch_json` seam (tests inject doubles); tuned by `WEB_LOOKUP_*` env.
 
 ## Infra seams
 
 - **SheetsClient** (`modules/sheets_client.py`) — the deep Google Sheets
-  module: `read_rows` (rows as dicts, `strip_prefix()` strips the leading
-  apostrophe Google echoes back), `append`, `update_cell`, `find_row`,
-  `find_row_by_column`, `column_values`. Owns the gspread/ADC plumbing;
-  `iracing_api_handler.IRacingAPIHandler` is the shared cached stats-API
-  adapter used by `standingsCog`, `wheelCog`, and `simracershub`.
-- **DB paths** — SQLite files (scheduler; legacy sqlite users of web_lookup).
-  `DB_PATH`, `WEB_LOOKUP_DB_PATH`, `LEAGUE_MEMORY_DB_PATH` env vars.
+  module: `available()`, `read_grid` (raises `SheetsError` naming the
+  tab; the spreadsheet id is not in the message), `read_rows` (rows as
+  dicts — but note it *swallows* `SheetsError` and returns `[]`),
+  `strip_id_quote()` strips the leading apostrophe Google echoes back,
+  `append_record` / `update_record` / `update_column_cells` raise
+  `SheetsError` describing the failed operation (and key/sheet name for
+  `update_record`). Owns the google-api-client plumbing; credentials from
+  `GOOGLE_CREDENTIALS_FILE` / `GOOGLE_CREDENTIALS_JSON`.
+- **iRacing API handler** — `iRacingAPIHandler` (`modules/api.py`), a
+  `requests.Session` subclass owning OAuth/legacy login and bounded API
+  calls; built from env by `iracing_handler_from_env()` and lazily cached
+  per-cog by `attendanceCog` and `registrationCog` (a
+  consolidation to a shared singleton is tracked as a follow-up).
+  `standingsCog`/`wheelCog` do not use it.
+- **DB paths** — scheduler SQLite via `DATABASE_URL`
+  (`sqlite:///data/spinny.db` default); the only env-selected DB today.

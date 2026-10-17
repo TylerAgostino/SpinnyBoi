@@ -2,8 +2,9 @@
 """Scheduler seam tests: every behavior through a Scheduler instance built
 on a temp database — nothing here touches data/spinny.db."""
 import asyncio
-import sqlite3
+import logging
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -134,7 +135,9 @@ class SchedulerTests(unittest.TestCase):
             self._run(self.scheduler.run_due())
             self.assertEqual(len(self.scheduler.pending()), 1)
             self.assertEqual(self._attempts_of(event_id), expected_attempts)
-        self._run(self.scheduler.run_due())  # 3rd consecutive failure
+        with self.assertLogs(level=logging.ERROR) as logs:
+            self._run(self.scheduler.run_due())  # 3rd consecutive failure
+        self.assertIn("giving up", "\n".join(logs.output))
         self.assertEqual(self.scheduler.pending(), [])  # never retried again
         self.assertEqual(len(calls), Scheduler.MAX_ATTEMPTS)
         self.assertEqual(self._attempts_of(event_id), Scheduler.MAX_ATTEMPTS)

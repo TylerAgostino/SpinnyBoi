@@ -252,7 +252,7 @@ class Scheduler:
                     )
                     self.mark_completed(event.id)  # type: ignore[arg-type]
                 else:
-                    logger.warning(
+                    logger.error(
                         f"Error executing scheduled event {event.id}: "
                         f"{str(e)} (attempt {attempts}/{self.MAX_ATTEMPTS})"
                     )

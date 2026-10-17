@@ -534,7 +534,7 @@ class WheelCog(commands.Cog):
                         )
             except Exception as e:
                 logging.error(f"Error processing filter {filter}: {str(e)}")
-                raise Exception(f"One of your filters is not properly formatted") from e
+                raise Exception("One of your filters is not properly formatted") from e
 
         filtereddf = df
         for query_string in filter_queries:
@@ -542,7 +542,7 @@ class WheelCog(commands.Cog):
                 filtereddf = filtereddf.query(query_string)
             except Exception as e:
                 logging.error(f"Error processing filter {query_string}: {str(e)}")
-                raise Exception(f"Something is wrong with one of your filters.") from e
+                raise Exception("Something is wrong with one of your filters.") from e
         if filtereddf.empty:
             raise Exception(f"Your filter {filter} returned no results")
         selections = filtereddf.to_dict("records")
@@ -711,8 +711,8 @@ class WheelCog(commands.Cog):
         )
 
         try:
-            channel = await self.bot.fetch_channel(ctx.channel.id)
-        except Exception as e:
+            await self.bot.fetch_channel(ctx.channel.id)
+        except Exception:
             await ctx.respond("I don't have permission to post in this channel.")
             return "I don't have permission to post in this channel.", None, None
 

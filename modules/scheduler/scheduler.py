@@ -6,8 +6,10 @@ never at import — importing this module has no side effects). Executors
 register handlers by function name; `run_due()` dispatches every due,
 uncompleted event to its handler and marks it completed on success. A
 handler that raises leaves its event pending so it retries on the next
-tick; an unregistered function is logged and completed so one bad row
-can't poison the loop.
+tick, but only up to `Scheduler.MAX_ATTEMPTS` consecutive failures — the
+event is then completed (give-up logged) instead of retrying forever. An
+unregistered function is logged and completed so one bad row can't poison
+the loop.
 
 Cancel is distinct from completed: a canceled event is never executed
 but stays distinguishable in the table (`cancelled = 1`, `completed = 0`).
@@ -38,11 +40,14 @@ class ScheduledEvent:
     completed: bool = False
     data: Optional[str] = None  # JSON string, opaque to the scheduler
     cancelled: bool = False
+    attempts: int = 0  # handler failures so far
 
 
 class Scheduler:
     """Event store + executor over one SQLite file. Sync storage, async
     execution through registered handlers."""
+
+    MAX_ATTEMPTS = 3  # consecutive handler failures before giving up
 
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
@@ -81,7 +86,8 @@ class Scheduler:
                 channel_id INTEGER NOT NULL,
                 completed BOOLEAN NOT NULL DEFAULT 0,
                 data TEXT,
-                cancelled BOOLEAN NOT NULL DEFAULT 0
+                cancelled BOOLEAN NOT NULL DEFAULT 0,
+                attempts INTEGER NOT NULL DEFAULT 0
             )
             """
             )
@@ -91,13 +97,18 @@ class Scheduler:
             ON scheduled_events (timestamp)
             """
             )
-            # Pre-existing databases lack the cancelled column.
+            # Pre-existing databases lack the newer columns.
             cursor.execute("PRAGMA table_info(scheduled_events)")
             columns = {row[1] for row in cursor.fetchall()}
             if "cancelled" not in columns:
                 cursor.execute(
                     "ALTER TABLE scheduled_events "
                     "ADD COLUMN cancelled BOOLEAN NOT NULL DEFAULT 0"
+                )
+            if "attempts" not in columns:
+                cursor.execute(
+                    "ALTER TABLE scheduled_events "
+                    "ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
                 )
             conn.commit()
             conn.close()
@@ -139,7 +150,7 @@ class Scheduler:
         try:
             cursor.execute(
                 f"""
-            SELECT id, timestamp, function_name, message_id, channel_id, completed, data, cancelled
+            SELECT id, timestamp, function_name, message_id, channel_id, completed, data, cancelled, attempts
             FROM scheduled_events
             WHERE {where}
             ORDER BY timestamp ASC
@@ -195,14 +206,26 @@ class Scheduler:
             logger.warning(f"Event {event_id} not cancellable")
         return changed
 
+    def _record_attempt(self, event_id: int, attempts: int) -> None:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE scheduled_events SET attempts = ? WHERE id = ?",
+            (attempts, event_id),
+        )
+        conn.commit()
+        conn.close()
+
     # --- execution --------------------------------------------------------
 
     async def run_due(self) -> int:
         """Dispatch every due event to its registered handler.
 
         Returns the number executed. Success marks the event completed; a
-        handler exception leaves it pending for the next tick; an
-        unregistered function is completed (a poison pill must not loop).
+        handler exception counts as one attempt and leaves the event
+        pending until `MAX_ATTEMPTS` consecutive failures, after which it
+        is completed (never retried again). An unregistered function is
+        completed (a poison pill must not loop).
         """
         executed = 0
         for event in self.pending():
@@ -220,7 +243,19 @@ class Scheduler:
                 )
                 await handler(event)
             except Exception as e:
-                logger.error(f"Error executing scheduled event {event.id}: {str(e)}")
+                attempts = event.attempts + 1
+                self._record_attempt(event.id, attempts)  # type: ignore[arg-type]
+                if attempts >= self.MAX_ATTEMPTS:
+                    logger.error(
+                        f"Scheduled event {event.id} ({event.function_name}) "
+                        f"failed {attempts} consecutive times; giving up: {e}"
+                    )
+                    self.mark_completed(event.id)  # type: ignore[arg-type]
+                else:
+                    logger.warning(
+                        f"Error executing scheduled event {event.id}: "
+                        f"{str(e)} (attempt {attempts}/{self.MAX_ATTEMPTS})"
+                    )
                 continue
             self.mark_completed(event.id)  # type: ignore[arg-type]
             executed += 1
@@ -237,6 +272,7 @@ def _to_event(row: sqlite3.Row) -> ScheduledEvent:
         completed=bool(row["completed"]),
         data=row["data"],
         cancelled=bool(row["cancelled"]),
+        attempts=row["attempts"],
     )
 
 

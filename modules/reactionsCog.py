@@ -2,13 +2,15 @@
 from discord.ext import commands
 import logging
 import random
+from pathlib import Path
 
 
 class ReactionsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        reactions_file = open("reactions.txt", "r", encoding="utf-8")
-        reactions = reactions_file.readlines()
+        reactions_path = Path(__file__).parent.parent / "reactions.txt"
+        with open(reactions_path, "r", encoding="utf-8") as reactions_file:
+            reactions = reactions_file.readlines()
         reaction_dict = {}
         for reaction in reactions:
             try:

@@ -391,8 +391,8 @@ async def respond_in_chat(message, bot_user, model=None):
             if include_images:
                 for a in m.attachments:
                     image_targets.append((a, entry["content"]))
-        except:
-            pass
+        except Exception as exc:
+            logging.debug(f"Skipping history entry {m.id}: {exc}")
 
     trigger = json.dumps(
         {
@@ -495,6 +495,27 @@ async def respond_in_chat(message, bot_user, model=None):
     if r is not None:
         return r
     return msg if isinstance(msg, str) else ""
+
+
+async def handle_mention(message, bot):
+    """Answer a mention of the bot, swallowing listener-side failures.
+
+    An exception escaping a discord.py listener kills the handler silently,
+    so every failure is logged here and answered with a best-effort apology;
+    this call never propagates an exception. Success replies exactly as the
+    old on_message branch did: typing indicator, channel.send of the reply.
+    """
+    try:
+        async with message.channel.typing():
+            response = await respond_in_chat(message, bot)
+            if response:
+                await message.channel.send(response)
+    except Exception:
+        logging.exception("mention handling failed in channel %s", message.channel.id)
+        try:
+            await message.reply("Sorry, I couldn't process that.")
+        except Exception:
+            logging.debug("mention fallback reply failed in channel %s", message.channel.id)
 
 
 # Canned status lines matching the LLM's prompt style; used when the LLM

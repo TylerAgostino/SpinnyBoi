@@ -61,10 +61,7 @@ async def on_message(message):
         return
 
     if bot.user.mentioned_in(message):
-        async with message.channel.typing():
-            response = await ChatHandler.respond_in_chat(message, bot)
-            if response:
-                await message.channel.send(response)
+        await ChatHandler.handle_mention(message, bot)
 
 
 bot.add_cog(IncidentCog(bot))

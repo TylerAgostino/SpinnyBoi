@@ -9,6 +9,7 @@ import random
 import threading
 import uuid
 from functools import wraps
+from pathlib import Path
 from typing import Optional
 
 import dataframe_image as dfi
@@ -242,8 +243,9 @@ class WheelCog(commands.Cog):
     @staticmethod
     def get_message(messages_file="messages.txt"):
         roll = random.random()
-        fp = open(messages_file)
-        messages = [message for message in fp.readlines()]
+        path = Path(__file__).parent.parent / messages_file
+        with open(path, "r", encoding="utf-8") as fp:
+            messages = fp.readlines()
         lines = len(messages)
         return messages[int(int(roll * 100) % lines)].strip("\n")
 
@@ -586,7 +588,7 @@ class WheelCog(commands.Cog):
             opts_list = [opt.strip() for opt in custom_options.split(",")]
             wheel = WheelSpinner.WheelSpinner.create_spindex(opts_list)
             file = await asyncio.to_thread(wheel.return_gif, driver)
-            return self.get_message("spindex_messages.txt"), file, "wheel.gif"
+            return self.get_message(), file, "wheel.gif"
         else:
             return "Please provide comma-separated options to mix.", None, None
 

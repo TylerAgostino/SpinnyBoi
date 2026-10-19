@@ -2,6 +2,7 @@
 from discord.ext import commands
 import logging
 import random
+from pathlib import Path
 
 
 def parse_reaction_lines(reactions):
@@ -32,7 +33,8 @@ def parse_reaction_lines(reactions):
 class ReactionsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        with open("reactions.txt", "r", encoding="utf-8") as reactions_file:
+        reactions_path = Path(__file__).parent.parent / "reactions.txt"
+        with open(reactions_path, "r", encoding="utf-8") as reactions_file:
             reactions = reactions_file.readlines()
         self.reaction_dict = parse_reaction_lines(reactions)
 

@@ -9,15 +9,9 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from modules.league_config import (
-    DEFAULT_AUTO_DELETE_CHANNEL_ID,
     DEFAULT_DEBUG_GUILD_IDS,
     DEFAULT_DRIVER_ROLE_ID,
-    DEFAULT_IRACING_LEAGUE_ID,
-    DEFAULT_POINTS_ID_COLUMN,
-    DEFAULT_POINTS_SHEET,
     DEFAULT_SEASON,
-    DEFAULT_SRH_AM_SERIES_ID,
-    DEFAULT_SRH_SEASON_ID,
     DEFAULT_SRH_SERIES_ID,
     LeagueConfig,
 )

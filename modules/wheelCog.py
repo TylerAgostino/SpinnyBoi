@@ -101,16 +101,15 @@ def wheel_command(needs_driver=True, is_interaction=True):
                             self, ctx=ctx, bot_response=bot_response, *args, **kwargs
                         )
                 except Exception:
-                    import traceback
-
-                    result = (
-                        f"An error occurred:\n```{traceback.format_exc()}```",
-                        None,
-                        None,
-                        None,
-                    )
                     logging.error(
-                        f"Error in wheel command {func.__name__}: {traceback.format_exc()}"
+                        f"Error in wheel command {func.__name__}", exc_info=True
+                    )
+                    result = (
+                        "Something went wrong running that wheel command - "
+                        "check the bot logs.",
+                        None,
+                        None,
+                        None,
                     )
 
                 # Process the result if returned

@@ -24,7 +24,12 @@ from modules.preset_source import PresetNotFound, PresetSource
 from modules.scheduler.scheduler import ScheduledEvent, Scheduler
 
 # Portainer webhook that (re)starts the session auditor container.
-AUDITOR_WEBHOOK_URL = "http://192.168.1.125:9996/api/stacks/webhooks/b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
+# Override with AUDITOR_WEBHOOK_URL (e.g. to rotate the token without a
+# code change); falls back to the currently deployed endpoint.
+AUDITOR_WEBHOOK_URL = os.getenv("AUDITOR_WEBHOOK_URL") or (
+    "http://192.168.1.125:9996/api/stacks/webhooks/"
+    "b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
+)
 
 
 

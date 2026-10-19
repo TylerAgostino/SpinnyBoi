@@ -73,6 +73,7 @@ class Scheduler:
         return sqlite3.connect(self.db_path)
 
     def _ensure_schema(self) -> None:
+        conn = None
         try:
             conn = self._connect()
             cursor = conn.cursor()
@@ -111,11 +112,13 @@ class Scheduler:
                     "ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
                 )
             conn.commit()
-            conn.close()
             logger.info(f"Scheduler database ready: {self.db_path}")
         except Exception as e:
             logger.error(f"Error initializing database: {str(e)}")
             raise
+        finally:
+            if conn is not None:
+                conn.close()
 
     def schedule(
         self,
@@ -127,43 +130,58 @@ class Scheduler:
     ) -> int:
         """Schedule an event; returns its id."""
         conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-        INSERT INTO scheduled_events (timestamp, function_name, message_id, channel_id, completed, data)
-        VALUES (?, ?, ?, ?, 0, ?)
-        """,
-            (timestamp, function_name, message_id, channel_id, data),
-        )
-        event_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+            INSERT INTO scheduled_events (timestamp, function_name, message_id, channel_id, completed, data)
+            VALUES (?, ?, ?, ?, 0, ?)
+            """,
+                (timestamp, function_name, message_id, channel_id, data),
+            )
+            event_id = cursor.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
         logger.info(
             f"Event scheduled: {function_name} on message {message_id} at {datetime.datetime.fromtimestamp(timestamp).isoformat()}"
         )
         return int(event_id)
 
     def _rows(self, where: str, params: tuple = ()) -> List[ScheduledEvent]:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
         try:
-            cursor.execute(
-                f"""
-            SELECT id, timestamp, function_name, message_id, channel_id, completed, data, cancelled, attempts
-            FROM scheduled_events
-            WHERE {where}
-            ORDER BY timestamp ASC
-            """,
-                params,
-            )
-        except sqlite3.Error:
-            # A missing database file simply means nothing has been stored.
-            conn.close()
+            conn = self._connect()
+        except sqlite3.Error as ex:
+            # Same policy as the query failure below: loud in logs, never
+            # crash the scheduler loop.
+            logger.error(f"Scheduler database error: {ex}", exc_info=True)
             return []
-        events = [_to_event(row) for row in cursor.fetchall()]
-        conn.close()
-        return events
+        conn.row_factory = sqlite3.Row
+        try:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    f"""
+                SELECT id, timestamp, function_name, message_id, channel_id, completed, data, cancelled, attempts
+                FROM scheduled_events
+                WHERE {where}
+                ORDER BY timestamp ASC
+                """,
+                    params,
+                )
+            except sqlite3.Error as ex:
+                # No database/table yet means nothing has been stored. A
+                # lock or corruption must stay visible in the logs instead
+                # of masquerading as "no pending events" - but it must not
+                # crash the scheduler loop either.
+                if "no such table" not in str(ex).lower():
+                    logger.error(
+                        f"Scheduler database error: {ex}", exc_info=True
+                    )
+                return []
+            return [_to_event(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
 
     def pending(self, now: Optional[float] = None) -> List[ScheduledEvent]:
         """Due, not completed, not canceled, oldest first."""
@@ -178,43 +196,49 @@ class Scheduler:
         return self._rows("completed = 0 AND cancelled = 0")
 
     def mark_completed(self, event_id: int) -> bool:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE scheduled_events SET completed = 1 WHERE id = ?", (event_id,)
-        )
-        changed = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE scheduled_events SET completed = 1 WHERE id = ?", (event_id,)
+            )
+            changed = cursor.rowcount > 0
+            conn.commit()
+        finally:
+            conn.close()
         if not changed:
             logger.warning(f"Event {event_id} not found when marking completed")
         return changed
 
     def cancel(self, event_id: int) -> bool:
         """Cancel a pending event. Completed events cannot be canceled."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE scheduled_events SET cancelled = 1 "
-            "WHERE id = ? AND completed = 0 AND cancelled = 0",
-            (event_id,),
-        )
-        changed = cursor.rowcount > 0
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE scheduled_events SET cancelled = 1 "
+                "WHERE id = ? AND completed = 0 AND cancelled = 0",
+                (event_id,),
+            )
+            changed = cursor.rowcount > 0
+            conn.commit()
+        finally:
+            conn.close()
         if not changed:
             logger.warning(f"Event {event_id} not cancellable")
         return changed
 
     def _record_attempt(self, event_id: int, attempts: int) -> None:
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE scheduled_events SET attempts = ? WHERE id = ?",
-            (attempts, event_id),
-        )
-        conn.commit()
-        conn.close()
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE scheduled_events SET attempts = ? WHERE id = ?",
+                (attempts, event_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     # --- execution --------------------------------------------------------
 

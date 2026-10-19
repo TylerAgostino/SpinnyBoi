@@ -79,6 +79,7 @@ The bot exits immediately, naming the variable, if a required env var is missing
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///data/spinny.db` | Scheduler state (SQLite); `data/` is git-ignored |
+| `AUDITOR_WEBHOOK_URL` | current Portainer auditor endpoint | Webhook used by `/spin auditor`; override to rotate without a rebuild |
 | `LEAGUE_DEBUG_GUILD_IDS` | league default | Guilds where slash commands register instantly |
 | `LEAGUE_STAFF_ROLE_ID`, `LEAGUE_DRIVER_ROLE_ID`, `LEAGUE_AUTO_DELETE_CHANNEL_ID`, `LEAGUE_SEASON`, `SRH_SEASON_ID`, `SRH_SERIES_ID`, `SRH_AM_SERIES_ID` | league defaults | Roles/channels/season ids |
 

@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 from .api import iRacingAPIHandler, shared_iracing_handler
+from .embed_utils import status_embed
 from .league_config import STAFF_ROLE_ID, LeagueConfig
 from .sheets_client import SheetsClient, SheetsError, strip_id_quote
 
@@ -362,11 +363,7 @@ class AttendanceCog(commands.Cog):
 
         except Exception as ex:
             logging.error(f"Error in markattendance command: {str(ex)}", exc_info=True)
-            error_embed = discord.Embed(
-                title="Error Marking Attendance",
-                description=str(ex),
-                color=discord.Color.red(),
-            )
+            error_embed = status_embed("Error Marking Attendance", str(ex), ok=False)
             await ctx.respond(embed=error_embed, ephemeral=True)
 
     @markattendance.error

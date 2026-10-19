@@ -9,3 +9,4 @@ credentials.json
 .env
 .env.*
 /data/
+.worktrees/

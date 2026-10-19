@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from .api import iRacingAPIHandler, shared_iracing_handler
+from .embed_utils import status_embed
 from .league_config import LeagueConfig
 from .registration_roster import RegistrationRoster, match_user, registration_status
 from .sheets_client import SheetsClient, SheetsError
@@ -100,26 +101,21 @@ class RegistrationCog(commands.Cog):
                     desired_league_numbers,
                     num_races,
                 )
-                embed = discord.Embed(
-                    title="Registration Successful",
-                    description="You have been successfully registered and assigned the driver role.",
-                    color=discord.Color.green(),
+                embed = status_embed(
+                    "Registration Successful",
+                    "You have been successfully registered and assigned the driver role.",
                 )
             except ValueError as nat:
                 logging.warning(f"Registration failed: {str(nat)}")
-                embed = discord.Embed(
-                    title="Registration Failed",
-                    description=str(nat),
-                    color=discord.Color.red(),
-                )
+                embed = status_embed("Registration Failed", str(nat), ok=False)
                 await interaction.followup.send(embed=embed)
                 return
             except Exception as ex:
                 logging.error(f"Error during registration: {str(ex)}")
-                embed = discord.Embed(
-                    title="Registration Error",
-                    description="An error occurred during registration. Please try again later.",
-                    color=discord.Color.red(),
+                embed = status_embed(
+                    "Registration Error",
+                    "An error occurred during registration. Please try again later.",
+                    ok=False,
                 )
             await interaction.followup.send(embed=embed)
 

@@ -14,7 +14,7 @@ leverage, locality) follows the `codebase-design` skill.
   `docker-compose.yaml` env vars override the baked defaults. A season flip is
   one edit here.
 - **Incident** — a rules-infraction poll run per race by `incidentCog`
-  (in-memory poll state only; the summary feature is unwired).
+  (in-memory poll state only).
 
 ## Registration & attendance
 

@@ -10,3 +10,9 @@ data/
 Dockerfile
 docker_compose.yaml
 .drone.yml
+
+# Secrets never baked (runtime supplies via volume/env; mirrors .gitignore)
+.env
+.env.*
+creds.json
+credentials.json

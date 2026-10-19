@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 from modules.env_config import MissingEnvError
-from modules.preset_source import Preset, PresetNotFound, PresetSource
+from modules.preset_source import PresetNotFound, PresetSource
 
 PRESETS_CSV = (
     "Fullname,My Cup Series,Weeknight Battle\n"

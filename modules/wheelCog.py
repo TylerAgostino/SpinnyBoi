@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import re
 import threading
 import uuid
 from functools import wraps
@@ -188,12 +189,59 @@ def wheel_command(needs_driver=True, is_interaction=True):
     return decorator
 
 
+def _short_label(value, limit=100):
+    """Render a user-supplied string as a reply-safe label: truncated to
+    `limit` chars and with mentions escaped so echoing it back can't
+    exceed message limits or ping anyone."""
+    text = str(value)
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return discord.utils.escape_mentions(text)
+
+
 class _WheelOption:
     def __init__(self, option: str, weight=1, on_select=None, include_text=None):
         self.option = option
         self.weight = weight
         self.on_select = on_select
         self.include_text = include_text if include_text is not None else ""
+
+
+_CUSTOM_WEIGHT = re.compile(r"^(?P<text>.+)\s*=\s*(?P<weight>\d+)$")
+
+
+#: Upper bound on a single option's weight. WheelSpinner materializes
+#: one slice per unit of weight, so an unbounded `a=9999999999` would
+#: allocate ~10 GB of list entries and hang the bot.
+MAX_CUSTOM_WEIGHT = 100
+
+
+def parse_custom_options(options_string):
+    """Parse a comma-separated custom-option string into _WheelOptions.
+
+    An option ending in ``=N`` where N is an integer in 1..MAX_CUSTOM_WEIGHT
+    carries weight N; the suffix is stripped from the displayed text
+    (``sorry I'm late=5`` -> "sorry I'm late" x5). Everything else is
+    literal weight-1 text, so ``a=``, ``a=0``, ``a==2``, and overspiced
+    ``a=101`` keep their ``=`` characters verbatim. Empty options are
+    dropped.
+    """
+    options = []
+    for raw in options_string.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        weight = 1
+        match = _CUSTOM_WEIGHT.match(raw)
+        if match:
+            text = match.group("text").strip()
+            parsed_weight = int(match.group("weight"))
+            if 1 <= parsed_weight <= MAX_CUSTOM_WEIGHT and not text.endswith("="):
+                weight = parsed_weight
+                raw = text
+        options.append(_WheelOption(raw, weight))
+    return options
+
 
 
 class WheelCog(commands.Cog):
@@ -226,6 +274,9 @@ class WheelCog(commands.Cog):
         self.bot = bot
         self.scheduler = scheduler or Scheduler.from_env()
         self.scheduler.register_handler("spin_preset", self._run_scheduled_spin)
+        self.scheduler.register_handler(
+            "spin_custom", self._run_scheduled_custom_spin
+        )
         self.check_scheduled_events.start()
         self.refresh_presets.start()
 
@@ -266,6 +317,30 @@ class WheelCog(commands.Cog):
             ctx=channel, preset_name=preset_name, role=role
         )
 
+    async def _run_scheduled_custom_spin(self, event: ScheduledEvent) -> None:
+        """Handler for spin_custom events, dispatched by the scheduler."""
+        channel = await self.bot.fetch_channel(int(event.channel_id))
+        if not channel:
+            logging.error(
+                f"Channel {event.channel_id} not found for event {event.id}"
+            )
+            return
+
+        data = json.loads(event.data) if event.data else {}
+        custom_options = data.get("custom_options")
+        role_id = data.get("role_id")
+        role = None
+        if role_id:
+            try:
+                guild = channel.guild
+                role = guild.get_role(role_id)
+            except Exception as e:
+                logging.error(f"Error fetching role {role_id}: {str(e)}")
+
+        await self.spin_custom_new_message(
+            ctx=channel, custom_options=custom_options, role=role
+        )
+
     @staticmethod
     def get_message(messages_file="messages.txt"):
         roll = random.random()
@@ -280,7 +355,7 @@ class WheelCog(commands.Cog):
         "custom_options",
         str,
         required=True,
-        description="Comma-separated custom options",
+        description="Comma-separated options; 'text=N' gives that option weight N (e.g. sorry=3, not sorry=7)",
     )
     @discord.option(
         "role",
@@ -295,7 +370,16 @@ class WheelCog(commands.Cog):
         await self.spin_custom(ctx=ctx, custom_options=custom_options, role=role)
 
     @wheel_command()
-    async def spin_custom(
+    async def spin_custom(self, *args, **kwargs):
+        """Context based wrapper to call generic_spin_custom"""
+        return await self.generic_spin_custom(*args, **kwargs)
+
+    @wheel_command(is_interaction=False)
+    async def spin_custom_new_message(self, *args, **kwargs):
+        """Non-interaction entry point used by the scheduler."""
+        return await self.generic_spin_custom(*args, **kwargs)
+
+    async def generic_spin_custom(
         self,
         ctx,
         custom_options: str,
@@ -303,7 +387,14 @@ class WheelCog(commands.Cog):
         driver=None,
         bot_response=None,
     ):
-        opts_list = [_WheelOption(opt.strip()) for opt in custom_options.split(",")]
+        opts_list = parse_custom_options(custom_options)
+        if not opts_list:
+            return (
+                "Please provide comma-separated options to spin.",
+                None,
+                None,
+                role,
+            )
         wheel = WheelSpinner.WheelSpinner(opts_list)
         # return_gif does 90 blocking Selenium screenshots — run it off the event loop
         file = await asyncio.to_thread(wheel.return_gif, driver)
@@ -706,9 +797,16 @@ class WheelCog(commands.Cog):
     )
     @discord.option(
         "preset_name",
-        description="The preset to use for the spin",
+        str,
+        description="The preset to use for the spin (omit for a custom wheel)",
         autocomplete=get_presets,
-        required=True,
+        required=False,
+    )
+    @discord.option(
+        "custom_options",
+        str,
+        description="Comma-separated custom options to schedule instead of a preset",
+        required=False,
     )
     @discord.option(
         "role",
@@ -722,11 +820,26 @@ class WheelCog(commands.Cog):
         day_of_week: str,
         hour: int,
         minute: int,
-        preset_name: str,
+        preset_name: Optional[str] = None,
+        custom_options: Optional[str] = None,
         role: Optional[discord.Role] = None,
     ):
-        """Schedule a preset spin in the current channel for a specific day and time."""
+        """Schedule a preset or custom spin in the current channel for a specific day and time."""
         await ctx.defer()
+
+        if bool(preset_name) == bool(custom_options):
+            await ctx.respond(
+                "Provide exactly one of preset_name or custom_options, not "
+                "both (and not neither)."
+            )
+            return "Validation failed for scheduled spin.", None, None
+        if custom_options is not None and not any(
+            opt.strip() for opt in custom_options.split(",")
+        ):
+            await ctx.respond(
+                "custom_options didn't contain any actual options to spin."
+            )
+            return "Validation failed for scheduled spin.", None, None
 
         # Get the current date
         now = datetime.datetime.now()
@@ -759,6 +872,7 @@ class WheelCog(commands.Cog):
         data = json.dumps(
             {
                 "preset_name": preset_name,
+                "custom_options": custom_options,
                 "role_id": role.id if role else None,
             }
         )
@@ -772,7 +886,7 @@ class WheelCog(commands.Cog):
         # Schedule the event
         self.scheduler.schedule(
             timestamp=timestamp,
-            function_name="spin_preset",
+            function_name="spin_preset" if preset_name else "spin_custom",
             message_id=ctx.interaction.id,
             channel_id=ctx.channel.id,
             data=data,
@@ -786,10 +900,15 @@ class WheelCog(commands.Cog):
         except Exception:
             nick = ctx.author.name
 
-        await ctx.respond(
-            f"{nick} scheduled spin of '{preset_name}' for <t:{int(timestamp)}:R>. I'll post the results here when it's time!"
+        label = (
+            _short_label(preset_name)
+            if preset_name
+            else f"custom ({_short_label(custom_options)})"
         )
-        return f"Scheduled spin of '{preset_name}' for {formatted_time}", None, None
+        await ctx.respond(
+            f"{nick} scheduled spin of '{label}' for <t:{int(timestamp)}:R>. I'll post the results here when it's time!"
+        )
+        return f"Scheduled spin of '{label}' for {formatted_time}", None, None
 
     @schedule.command(name="list")
     async def list_scheduled_spins(self, ctx):
@@ -801,7 +920,9 @@ class WheelCog(commands.Cog):
 
         # Filter for spin events
         spin_events = [
-            event for event in scheduled_events if event.function_name == "spin_preset"
+            event
+            for event in scheduled_events
+            if event.function_name in ("spin_preset", "spin_custom")
         ]
 
         if not spin_events:
@@ -815,6 +936,7 @@ class WheelCog(commands.Cog):
             # Use the timestamp directly for Discord timestamp formatting
             data = json.loads(event.data) if event.data else {}
             preset_name = data.get("preset_name", "Unknown preset")
+            custom_options = data.get("custom_options")
             role_id = data.get("role_id")
 
             role_text = ""
@@ -827,9 +949,13 @@ class WheelCog(commands.Cog):
                 except Exception:
                     pass
 
+            if custom_options:
+                what = f"**Custom Options:** {_short_label(custom_options)}\n"
+            else:
+                what = f"**Preset:** {_short_label(preset_name)}\n"
             response += (
                 f"**ID:** {event.id}\n"
-                f"**Preset:** {preset_name}\n"
+                f"{what}"
                 f"**Scheduled Time:** <t:{int(event.timestamp)}:F> (<t:{int(event.timestamp)}:R>){role_text}\n\n"
             )
 
@@ -854,7 +980,8 @@ class WheelCog(commands.Cog):
             (
                 e
                 for e in all_events
-                if e.id == event_id and e.function_name == "spin_preset"
+                if e.id == event_id
+                and e.function_name in ("spin_preset", "spin_custom")
             ),
             None,
         )
@@ -867,10 +994,14 @@ class WheelCog(commands.Cog):
         if self.scheduler.cancel(event_id):
             # Get the event details for the response
             data = json.loads(event.data) if event.data else {}
-            preset_name = data.get("preset_name", "Unknown preset")
+            label = (
+                _short_label(data.get("preset_name"))
+                if data.get("preset_name")
+                else f"custom ({_short_label(data.get('custom_options'))})"
+            )
 
             await ctx.respond(
-                f"Successfully canceled the scheduled spin of '{preset_name}' that was set for <t:{int(event.timestamp)}:F>."
+                f"Successfully canceled the scheduled spin of '{label}' that was set for <t:{int(event.timestamp)}:F>."
             )
             return f"Canceled scheduled spin with ID {event_id}.", None, None
         else:

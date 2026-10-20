@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import re
 import threading
 import uuid
 from functools import wraps
@@ -175,6 +176,37 @@ class _WheelOption:
         self.include_text = include_text if include_text is not None else ""
 
 
+
+_CUSTOM_WEIGHT = re.compile(r"^(?P<text>.+)\s*=\s*(?P<weight>\d+)$")
+
+
+def parse_custom_options(options_string):
+    """Parse a comma-separated custom-option string into _WheelOptions.
+
+    An option ending in ``=N`` where N is a positive integer carries
+    weight N; the suffix is stripped from the displayed text
+    (``sorry I'm late=5`` -> "sorry I'm late" x5). Everything else is
+    literal weight-1 text, so ``a=``, ``a=0``, and ``a==2`` keep their
+    ``=`` characters verbatim. Empty options are dropped.
+    """
+    options = []
+    for raw in options_string.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        weight = 1
+        match = _CUSTOM_WEIGHT.match(raw)
+        if match:
+            text = match.group("text").strip()
+            parsed_weight = int(match.group("weight"))
+            if parsed_weight >= 1 and not text.endswith("="):
+                weight = parsed_weight
+                raw = text
+        options.append(_WheelOption(raw, weight))
+    return options
+
+
+
 class WheelCog(commands.Cog):
     def __init__(
         self,
@@ -259,7 +291,7 @@ class WheelCog(commands.Cog):
         "custom_options",
         str,
         required=True,
-        description="Comma-separated custom options",
+        description="Comma-separated options; 'text=N' gives that option weight N (e.g. sorry=3, not sorry=7)",
     )
     @discord.option(
         "role",
@@ -282,7 +314,7 @@ class WheelCog(commands.Cog):
         driver=None,
         bot_response=None,
     ):
-        opts_list = [_WheelOption(opt.strip()) for opt in custom_options.split(",")]
+        opts_list = parse_custom_options(custom_options)
         wheel = WheelSpinner.WheelSpinner(opts_list)
         # return_gif does 90 blocking Selenium screenshots — run it off the event loop
         file = await asyncio.to_thread(wheel.return_gif, driver)

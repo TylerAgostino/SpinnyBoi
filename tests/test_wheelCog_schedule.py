@@ -591,6 +591,36 @@ class CustomScheduleTests(_Fixture):
         self.assertIn("actual options", _last_text(ctx))
         self.assertEqual(self.scheduler.all_active(), [])
 
+    def test_long_custom_options_label_is_truncated_payload_kept(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        long_options = "opt" + "x" * 300
+        message, _, _ = self._schedule_custom(cog, ctx, custom_options=long_options)
+        events = [
+            e for e in self.scheduler.all_active() if e.function_name == self.CUSTOM
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(json.loads(events[0].data)["custom_options"], long_options)
+        self.assertIn("…", message)
+        self.assertNotIn("x" * 120, message)
+        self.assertLess(len(_last_text(ctx)), 300)
+
+    def test_mentions_in_custom_options_are_escaped_in_replies(self):
+        from discord.utils import escape_mentions
+
+        cog = self.make_cog()
+        ctx = _Ctx()
+        self._schedule_custom(cog, ctx, custom_options="@everyone, here")
+        confirmation = _last_text(ctx)
+        self.assertIn(f"custom ({escape_mentions('@everyone')}, here)", confirmation)
+        self.assertNotIn("custom (@everyone", confirmation)
+
+        list_ctx = _Ctx()
+        self.list_spins(cog, list_ctx)
+        body = _last_text(list_ctx)
+        self.assertIn(f"**Custom Options:** {escape_mentions('@everyone')}, here", body)
+        self.assertNotIn("**Custom Options:** @everyone", body)
+
     def test_due_custom_spin_fires_through_registered_handler(self):
         cog = self.make_cog()  # registers spin_custom -> _run_scheduled_custom_spin
         cog.spin_custom_new_message = AsyncMock()

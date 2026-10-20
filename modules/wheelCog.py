@@ -167,6 +167,16 @@ def wheel_command(needs_driver=True, is_interaction=True):
     return decorator
 
 
+def _short_label(value, limit=100):
+    """Render a user-supplied string as a reply-safe label: truncated to
+    `limit` chars and with mentions escaped so echoing it back can't
+    exceed message limits or ping anyone."""
+    text = str(value)
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return discord.utils.escape_mentions(text)
+
+
 class _WheelOption:
     def __init__(self, option: str, weight=1, on_select=None, include_text=None):
         self.option = option
@@ -799,7 +809,11 @@ class WheelCog(commands.Cog):
         except Exception:
             nick = ctx.author.name
 
-        label = preset_name if preset_name else f"custom ({custom_options})"
+        label = (
+            _short_label(preset_name)
+            if preset_name
+            else f"custom ({_short_label(custom_options)})"
+        )
         await ctx.respond(
             f"{nick} scheduled spin of '{label}' for <t:{int(timestamp)}:R>. I'll post the results here when it's time!"
         )
@@ -845,9 +859,9 @@ class WheelCog(commands.Cog):
                     pass
 
             if custom_options:
-                what = f"**Custom Options:** {custom_options}\n"
+                what = f"**Custom Options:** {_short_label(custom_options)}\n"
             else:
-                what = f"**Preset:** {preset_name}\n"
+                what = f"**Preset:** {_short_label(preset_name)}\n"
             response += (
                 f"**ID:** {event.id}\n"
                 f"{what}"
@@ -889,7 +903,11 @@ class WheelCog(commands.Cog):
         if self.scheduler.cancel(event_id):
             # Get the event details for the response
             data = json.loads(event.data) if event.data else {}
-            label = data.get("preset_name") or f"custom ({data.get('custom_options')})"
+            label = (
+                _short_label(data.get("preset_name"))
+                if data.get("preset_name")
+                else f"custom ({_short_label(data.get('custom_options'))})"
+            )
 
             await ctx.respond(
                 f"Successfully canceled the scheduled spin of '{label}' that was set for <t:{int(event.timestamp)}:F>."

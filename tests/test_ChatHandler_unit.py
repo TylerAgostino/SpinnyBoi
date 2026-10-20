@@ -8,7 +8,6 @@ Run: python -m unittest tests.test_ChatHandler_unit
 import asyncio
 import datetime
 import io
-import json
 import os
 import struct
 import unittest

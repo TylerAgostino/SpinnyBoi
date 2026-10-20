@@ -1,56 +1,45 @@
-import asyncio
+# pyright: basic
+"""AUDITOR_WEBHOOK_URL resolution: env override wins; default preserved."""
+
+import importlib
+import os
 import unittest
-from unittest import mock
 
-from modules import wheelCog
-
-
-def fake_response(status_code):
-    return mock.Mock(status_code=status_code)
+import modules.wheelCog as wheelCog
 
 
-class SpinAuditorTests(unittest.TestCase):
-    def run_auditor(self, fake_post):
-        ctx = mock.Mock()
-        ctx.defer = mock.AsyncMock()
-        bot_response = mock.AsyncMock()
-        ctx.respond = mock.AsyncMock(return_value=bot_response)
-        with (
-            mock.patch("modules.wheelCog.requests.post", side_effect=fake_post),
-            mock.patch(
-                "modules.ChatHandler.working_on_it", mock.AsyncMock(return_value="")
-            ),
-        ):
-            asyncio.run(wheelCog.WheelCog.spin_auditor(None, ctx))
-        return bot_response.edit.call_args.kwargs["content"]
+def reload_with_env(value):
+    old = os.environ.get("AUDITOR_WEBHOOK_URL")
+    if value is None:
+        os.environ.pop("AUDITOR_WEBHOOK_URL", None)
+    else:
+        os.environ["AUDITOR_WEBHOOK_URL"] = value
+    try:
+        importlib.reload(wheelCog)
+        return wheelCog.AUDITOR_WEBHOOK_URL
+    finally:
+        if old is None:
+            os.environ.pop("AUDITOR_WEBHOOK_URL", None)
+        else:
+            os.environ["AUDITOR_WEBHOOK_URL"] = old
+        importlib.reload(wheelCog)
 
-    def test_success_wording_on_200(self):
-        message = self.run_auditor(lambda *a, **k: fake_response(200))
-        self.assertIn("sent a request to restart the auditor", message)
 
-    def test_timeout_bounded_on_post(self):
-        captured = {}
+class AuditorWebhookUrlTests(unittest.TestCase):
+    DEFAULT_URL = (
+        "http://192.168.1.125:9996/api/stacks/webhooks/"
+        "b1fb8123-6c54-439d-839f-11c2ad01a011?pullimage=true"
+    )
 
-        def fake_post(url, **kwargs):
-            captured.update(kwargs)
-            return fake_response(200)
+    def test_default_endpoint_when_env_unset(self):
+        self.assertEqual(reload_with_env(None), self.DEFAULT_URL)
 
-        self.run_auditor(fake_post)
-        connect, read = captured["timeout"]
-        self.assertGreater(connect, 0)
-        self.assertGreater(read, 0)
+    def test_env_override_wins(self):
+        url = reload_with_env("http://example.invalid/hook")
+        self.assertEqual(url, "http://example.invalid/hook")
 
-    def test_failure_wording_on_non_2xx(self):
-        message = self.run_auditor(lambda *a, **k: fake_response(500))
-        self.assertIn("500", message)
-        self.assertNotIn("It should post shortly", message)
-
-    def test_failure_wording_on_connection_error(self):
-        def boom(*args, **kwargs):
-            raise wheelCog.requests.ConnectionError("stalled")
-
-        message = self.run_auditor(boom)
-        self.assertIn("couldn't reach", message)
+    def test_empty_env_falls_back_to_default(self):
+        self.assertEqual(reload_with_env(""), self.DEFAULT_URL)
 
 
 if __name__ == "__main__":

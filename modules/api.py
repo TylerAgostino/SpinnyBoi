@@ -261,13 +261,15 @@ class iRacingAPIHandler(requests.Session):
         return super().request(method, url, *args, **kwargs)
 
     def _get_paged_data(
-        self, url: str
+        self, url: str, _auth_retry: bool = True
     ) -> dict[str, Any]:  # pyright: ignore[reportExplicitAny]
         """
         Get paginated data from the API.
 
         Args:
             url: URL to fetch data from
+            _auth_retry: internal; False once a re-login has been attempted,
+                so a persistent 401 terminates instead of recursing.
 
         Returns:
             dictionary containing the fetched data
@@ -288,7 +290,12 @@ class iRacingAPIHandler(requests.Session):
                 )
         elif response.status_code == 401:
             self.logged_in = False
-            return self._get_paged_data(url)
+            if _auth_retry:
+                return self._get_paged_data(url, _auth_retry=False)
+            # Re-login already spent and the endpoint still says 401:
+            # surface the HTTP error rather than loop to RecursionError.
+            response.raise_for_status()
+            return {}
         else:
             response.raise_for_status()
             return {}

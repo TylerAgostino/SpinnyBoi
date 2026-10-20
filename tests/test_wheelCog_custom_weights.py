@@ -65,7 +65,7 @@ class SpinCustomWiringTests(unittest.IsolatedAsyncioTestCase):
 
         cog = SimpleNamespace(get_message=lambda: "spinning")
         with patch("modules.wheelCog.WheelSpinner.WheelSpinner", side_effect=fake_wheel):
-            message, file, filename, role = await WheelCog.spin_custom.__wrapped__(
+            message, file, filename, role = await WheelCog.generic_spin_custom(
                 cog, None, custom_options="sorry=3, not sorry=7, whatever"
             )
         pairs = [(o.option, o.weight) for o in captured["opts"]]
@@ -77,7 +77,7 @@ class SpinCustomWiringTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_spin_custom_rejects_all_empty_input(self):
         cog = SimpleNamespace(get_message=lambda: "spinning")
-        message, file, filename, role = await WheelCog.spin_custom.__wrapped__(
+        message, file, filename, role = await WheelCog.generic_spin_custom(
             cog, None, custom_options=" , , "
         )
         self.assertIn("comma-separated options", message)

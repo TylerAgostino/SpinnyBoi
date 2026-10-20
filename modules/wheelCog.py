@@ -732,6 +732,13 @@ class WheelCog(commands.Cog):
                 "both (and not neither)."
             )
             return "Validation failed for scheduled spin.", None, None
+        if custom_options is not None and not any(
+            opt.strip() for opt in custom_options.split(",")
+        ):
+            await ctx.respond(
+                "custom_options didn't contain any actual options to spin."
+            )
+            return "Validation failed for scheduled spin.", None, None
 
         # Get the current date
         now = datetime.datetime.now()

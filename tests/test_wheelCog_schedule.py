@@ -584,6 +584,13 @@ class CustomScheduleTests(_Fixture):
         self.assertIn("exactly one", _last_text(ctx))
         self.assertEqual(self.scheduler.all_active(), [])
 
+    def test_whitespace_only_custom_options_is_rejected(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        self._schedule_custom(cog, ctx, custom_options=" , ")
+        self.assertIn("actual options", _last_text(ctx))
+        self.assertEqual(self.scheduler.all_active(), [])
+
     def test_due_custom_spin_fires_through_registered_handler(self):
         cog = self.make_cog()  # registers spin_custom -> _run_scheduled_custom_spin
         cog.spin_custom_new_message = AsyncMock()
@@ -604,6 +611,24 @@ class CustomScheduleTests(_Fixture):
         )
         self.channel.guild.get_role.assert_called_once_with(77)
         self.assertEqual(self.row(event_id)["completed"], 1)
+
+    def test_custom_spin_runs_untagged_when_role_was_deleted(self):
+        cog = self.make_cog()
+        cog.spin_custom_new_message = AsyncMock()
+        self.channel.guild.get_role = MagicMock(return_value=None)
+        self.scheduler.schedule(
+            time.time() - 10,
+            self.CUSTOM,
+            INTERACTION_ID,
+            CHANNEL_ID,
+            data=json.dumps(
+                {"preset_name": None, "custom_options": "x, y", "role_id": 999}
+            ),
+        )
+        self.assertEqual(asyncio.run(self.scheduler.run_due()), 1)
+        cog.spin_custom_new_message.assert_awaited_once_with(
+            ctx=self.channel, custom_options="x, y", role=None
+        )
 
     def test_list_shows_custom_alongside_preset(self):
         cog = self.make_cog()
@@ -629,6 +654,20 @@ class CustomScheduleTests(_Fixture):
         self.assertIn("**Preset:** Rotational", body)
         self.assertIn("**Custom Options:** beer, duty", body)
         self.assertIn(f"**ID:** {custom_id}", body)
+
+    def test_cancel_still_labels_legacy_preset_events(self):
+        cog = self.make_cog()
+        event_id = self.scheduler.schedule(
+            datetime.datetime(2026, 10, 18, 7, 0).timestamp(),
+            SPIN,
+            2,
+            CHANNEL_ID,
+            data=json.dumps({"preset_name": "Rotational", "role_id": None}),
+        )
+        ctx = _Ctx()
+        self.cancel_spin(cog, ctx, event_id)
+        self.assertIn("'Rotational'", _last_text(ctx))
+        self.assertEqual(self.row(event_id)["cancelled"], 1)
 
     def test_cancel_works_for_custom_events(self):
         cog = self.make_cog()

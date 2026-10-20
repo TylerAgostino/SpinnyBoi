@@ -113,7 +113,10 @@ def wheel_command(needs_driver=True, is_interaction=True):
                         f"Wheel command {func.__name__} rejected: {exc}"
                     )
                     result = (
-                        f"That didn't work: {str(exc)[:800]}\n"
+                        # Filter/tab names are user text: escape mentions
+                        # so a crafted '@everyone' can't ping, then cap.
+                        f"That didn't work: "
+                        f"{discord.utils.escape_mentions(str(exc))[:800]}\n"
                         "Check the preset/filter/spreadsheet settings.",
                         None,
                         None,
@@ -351,12 +354,13 @@ class WheelCog(commands.Cog):
                     exc_info=True,
                 )
                 detail = (
-                    str(e)
+                    discord.utils.escape_mentions(str(e))
                     if isinstance(e, WheelUserError)
                     else "something unexpected went wrong - details are in the bot logs."
                 )
                 return (
-                    f"The preset {preset_name} ran into an error: {detail}",
+                    f"The preset {discord.utils.escape_mentions(str(preset_name))} "
+                    f"ran into an error: {detail}",
                     None,
                     None,
                 )
@@ -425,11 +429,16 @@ class WheelCog(commands.Cog):
                 exc_info=True,
             )
             detail = (
-                str(e)
+                discord.utils.escape_mentions(str(e))
                 if isinstance(e, WheelUserError)
                 else "something unexpected went wrong - details are in the bot logs."
             )
-            return f"The preset {preset_name} ran into an error: {detail}", None, None
+            escaped_preset = discord.utils.escape_mentions(str(preset_name))
+            return (
+                f"The preset {escaped_preset} ran into an error: {detail}",
+                None,
+                None,
+            )
         options_df = pd.DataFrame(
             [[option.option, option.weight, option.on_select] for option in opt_set],
             columns=["Option", "Weight", "OnSelect"],

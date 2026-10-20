@@ -17,6 +17,10 @@ class _BoomCog:
         raise WheelUserError("Your filter team:zzz returned no results")
 
     @wheel_command(needs_driver=False, is_interaction=False)
+    async def mentionfish(self, ctx, bot_response):
+        raise WheelUserError("Your filter @everyone returned no results")
+
+    @wheel_command(needs_driver=False, is_interaction=False)
     async def missing_tab(self, ctx, bot_response):
         raise NoTabError("Tab drivers not found")
 
@@ -46,6 +50,13 @@ class WheelCommandUserErrorTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_tab_error_is_surfaced_too(self):
         content, _ = await self._run("missing_tab")
         self.assertIn("Tab drivers not found", content)
+
+    async def test_mentions_are_escaped_in_surfaced_message(self):
+        from discord.utils import escape_mentions
+
+        content, _ = await self._run("mentionfish")
+        self.assertIn(f"filter {escape_mentions('@everyone')}", content)
+        self.assertNotIn(" @everyone ", content)
 
     async def test_unknown_error_stays_generic(self):
         content, _ = await self._run("boom", level="ERROR")

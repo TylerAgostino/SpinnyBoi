@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from typing import List
+from unittest import mock
 
 from modules.scheduler.scheduler import ScheduledEvent, Scheduler
 
@@ -191,6 +192,81 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.schedule(time.time() - 1, "f", 1, 2)
         self.assertEqual(len(self.scheduler.all_active()), 1)
         self.assertEqual(other.all_active(), [])
+
+
+class DbErrorHandlingTests(unittest.TestCase):
+    """Issue #132: a locked/corrupt database must be loud in logs, never
+    crash the scheduler loop, and never leak its connection."""
+
+    class FailingConn:
+        def __init__(self, error):
+            self._error = error
+            self.closed = False
+
+        @property
+        def row_factory(self):
+            return None
+
+        @row_factory.setter
+        def row_factory(self, value):
+            pass
+
+        def cursor(self):
+            error = self._error
+
+            class FailingCursor:
+                def execute(self, *args):
+                    raise error
+
+                def fetchall(self):
+                    return []
+
+            return FailingCursor()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            self.closed = True
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.scheduler = Scheduler(os.path.join(self.temp_dir.name, "sched.db"))
+        self.addCleanup(self.temp_dir.cleanup)
+
+    def test_missing_table_reads_empty_without_logging(self):
+        conn = sqlite3.connect(self.scheduler.db_path)
+        conn.execute("DROP TABLE scheduled_events")
+        conn.commit()
+        conn.close()
+        with self.assertNoLogs(level=logging.ERROR):
+            self.assertEqual(self.scheduler.pending(), [])
+
+    def test_database_lock_reads_empty_but_logs_error(self):
+        locked = sqlite3.OperationalError("database is locked")
+        fake = self.FailingConn(locked)
+        with mock.patch.object(self.scheduler, "_connect", return_value=fake):
+            with self.assertLogs(level=logging.ERROR) as captured:
+                self.assertEqual(self.scheduler.pending(), [])
+        self.assertTrue(fake.closed)
+        self.assertIn("database is locked", "\n".join(captured.output))
+
+    def test_write_error_propagates_but_closes_connection(self):
+        locked = sqlite3.OperationalError("database is locked")
+        fake = self.FailingConn(locked)
+        with mock.patch.object(self.scheduler, "_connect", return_value=fake):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.scheduler.mark_completed(1)
+        self.assertTrue(fake.closed)
+
+    def test_connect_failure_reads_empty_but_logs_error(self):
+        def refuse_connect():
+            raise sqlite3.OperationalError("unable to open database file")
+
+        with mock.patch.object(self.scheduler, "_connect", refuse_connect):
+            with self.assertLogs(level=logging.ERROR) as captured:
+                self.assertEqual(self.scheduler.pending(), [])
+        self.assertIn("unable to open database file", "\n".join(captured.output))
 
 
 if __name__ == "__main__":

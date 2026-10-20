@@ -53,6 +53,7 @@ services:
       - SIMRACERHUB_TIMEOUT_SECONDS=${SIMRACERHUB_TIMEOUT_SECONDS}
       - SIMRACERHUB_MIN_INTERVAL_SECONDS=${SIMRACERHUB_MIN_INTERVAL_SECONDS}
       - SIMRACERHUB_MAX_ROWS=${SIMRACERHUB_MAX_ROWS}
+      - AUDITOR_WEBHOOK_URL=${AUDITOR_WEBHOOK_URL}
     volumes:
       - spinny_db:/app/data
       - /mnt/user/apollo-share/Fonts:/usr/share/fonts/

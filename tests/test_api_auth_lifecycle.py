@@ -241,9 +241,9 @@ class PagedDataTests(unittest.TestCase):
 
         def relogin():
             self.relogin_count += 1
-            # First relogin succeeds; any second one fails, which is what
-            # bounds the code's 401 recursion (guard raises when the
-            # re-login leaves logged_in False).
+            # First relogin succeeds; any second one fails. Independently,
+            # _get_paged_data's _auth_retry flag caps the cycle at one
+            # re-attempt even when relogin keeps succeeding (issue #130).
             self.handler.logged_in = self.relogin_count == 1
             return self.handler.logged_in
 
@@ -304,16 +304,40 @@ class PagedDataTests(unittest.TestCase):
         self.assertEqual(self.handler.get.call_count, 2)
         self.assertEqual(self.handler.login.call_count, 1)
 
-    def test_second_401_terminates_via_login_guard(self):
-        # The recursion is bounded by the re-login: once login fails to
-        # restore logged_in, the guard raises instead of looping forever.
+    def test_failed_relogin_raises_not_logged_in(self):
+        # When the single re-attempt cannot restore the session, the top-of-
+        # method guard raises rather than fetching with no auth.
         self.handler.logged_in = True
+
+        def relogin_fails():
+            self.handler.logged_in = False
+            return False
+
+        self.handler.login = mock.Mock(side_effect=relogin_fails)
         self.handler.get = mock.Mock(return_value=resp(401))
         with self.assertRaisesRegex(Exception, "Not logged in to iRacing API"):
             self.handler._get_paged_data(API + "/data/member/get?cust_ids=9")
-        # Exactly one retry happened; no unbounded loop / RecursionError.
+        self.assertEqual(self.handler.get.call_count, 1)
+        self.assertEqual(self.handler.login.call_count, 1)
+
+    def test_second_401_after_successful_relogin_raises_http_error(self):
+        # Issue #130: if re-login succeeds but the endpoint keeps answering
+        # 401, the retry flag (not the login guard) must terminate with a
+        # real HTTPError - not RecursionError.
+        self.handler.logged_in = True
+
+        def relogin_ok():
+            self.handler.logged_in = True
+            return True
+
+        self.handler.login = mock.Mock(side_effect=relogin_ok)
+        failure = resp(401)
+        failure.raise_for_status.side_effect = requests.HTTPError("401 unauthorized")
+        self.handler.get = mock.Mock(return_value=failure)
+        with self.assertRaises(requests.HTTPError):
+            self.handler._get_paged_data(API + "/data/member/get?cust_ids=9")
         self.assertEqual(self.handler.get.call_count, 2)
-        self.assertEqual(self.handler.login.call_count, 2)
+        self.assertEqual(self.handler.login.call_count, 1)
 
     def test_non_401_error_raises_for_status(self):
         self.handler.logged_in = True

@@ -9,6 +9,12 @@ import modules.wheelCog as wheelCog
 
 
 def reload_with_env(value):
+    """Read AUDITOR_WEBHOOK_URL after reload; restore the module exactly.
+
+    Re-reloading would mint fresh exception/class objects and poison other
+    tests' imported references, so the pristine __dict__ is restored instead.
+    """
+    pristine = dict(wheelCog.__dict__)
     old = os.environ.get("AUDITOR_WEBHOOK_URL")
     if value is None:
         os.environ.pop("AUDITOR_WEBHOOK_URL", None)
@@ -22,7 +28,8 @@ def reload_with_env(value):
             os.environ.pop("AUDITOR_WEBHOOK_URL", None)
         else:
             os.environ["AUDITOR_WEBHOOK_URL"] = old
-        importlib.reload(wheelCog)
+        wheelCog.__dict__.clear()
+        wheelCog.__dict__.update(pristine)
 
 
 class AuditorWebhookUrlTests(unittest.TestCase):

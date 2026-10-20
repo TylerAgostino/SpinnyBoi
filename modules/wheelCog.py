@@ -38,8 +38,13 @@ async def get_preset_tabs(ctx):
     return await asyncio.to_thread(PresetSource.default().tabs, preset_name)
 
 
-class NoTabError(Exception):
-    pass
+class WheelUserError(RuntimeError):
+    """A failure whose message is safe and useful to put in the bot
+    reply: sheet/tab/filter misconfiguration the caller can act on."""
+
+
+class NoTabError(WheelUserError):
+    """The requested spreadsheet tab does not exist."""
 
 
 def _quit_driver(driver):
@@ -100,6 +105,20 @@ def wheel_command(needs_driver=True, is_interaction=True):
                         result = await func(
                             self, ctx=ctx, bot_response=bot_response, *args, **kwargs
                         )
+                except WheelUserError as exc:
+                    # Sheet/preset/filter misconfiguration: the message is
+                    # ours and actionable by whoever owns the spreadsheet, so
+                    # surface it in the reply (capped) without a traceback.
+                    logging.warning(
+                        f"Wheel command {func.__name__} rejected: {exc}"
+                    )
+                    result = (
+                        f"That didn't work: {str(exc)[:800]}\n"
+                        "Check the preset/filter/spreadsheet settings.",
+                        None,
+                        None,
+                        None,
+                    )
                 except Exception:
                     logging.error(
                         f"Error in wheel command {func.__name__}", exc_info=True
@@ -328,10 +347,16 @@ class WheelCog(commands.Cog):
                 opt_set = await self.generate_option_set(tab, filter_string)
             except Exception as e:
                 logging.error(
-                    f"Error processing tab {tab}, filter string {filter_string}: {str(e)}"
+                    f"Error processing tab {tab}, filter string {filter_string}: {str(e)}",
+                    exc_info=True,
+                )
+                detail = (
+                    str(e)
+                    if isinstance(e, WheelUserError)
+                    else "something unexpected went wrong - details are in the bot logs."
                 )
                 return (
-                    f"The preset {preset_name} ran into an error: {str(e)}",
+                    f"The preset {preset_name} ran into an error: {detail}",
                     None,
                     None,
                 )
@@ -396,9 +421,15 @@ class WheelCog(commands.Cog):
             opt_set = await self.generate_option_set(tab_name, filter_string)
         except Exception as e:
             logging.error(
-                f"Error processing tab {tab_name}, filter string {filter_string}: {str(e)}"
+                f"Error processing tab {tab_name}, filter string {filter_string}: {str(e)}",
+                exc_info=True,
             )
-            return f"The preset {preset_name} ran into an error: {str(e)}", None, None
+            detail = (
+                str(e)
+                if isinstance(e, WheelUserError)
+                else "something unexpected went wrong - details are in the bot logs."
+            )
+            return f"The preset {preset_name} ran into an error: {detail}", None, None
         options_df = pd.DataFrame(
             [[option.option, option.weight, option.on_select] for option in opt_set],
             columns=["Option", "Weight", "OnSelect"],
@@ -455,8 +486,15 @@ class WheelCog(commands.Cog):
         except NoTabError as e:
             raise e
         except Exception as e:
-            logging.error(f"Error processing tab {tab}: {str(e)}")
-            raise e
+            logging.error(f"Error processing tab {tab}: {str(e)}", exc_info=True)
+            # str(e) from arbitrary sheet-client failures can carry request
+            # and client internals; only the user-supplied tab name is safe
+            # to show, so the reply gets a fixed message, logs get the rest.
+            raise WheelUserError(
+                f"I couldn't read the sheet tab '{tab}'. Check that the "
+                "spreadsheet, tab name, and the bot's access are correct - "
+                "details are in the bot logs."
+            ) from e
         df.columns = df.columns.str.lower()
         filter_string = filter_string.strip(" ").lower()
         filters = filter_string.split(",")
@@ -533,7 +571,7 @@ class WheelCog(commands.Cog):
                         )
             except Exception as e:
                 logging.error(f"Error processing filter {filter}: {str(e)}")
-                raise Exception("One of your filters is not properly formatted") from e
+                raise WheelUserError("One of your filters is not properly formatted") from e
 
         filtereddf = df
         for query_string in filter_queries:
@@ -541,9 +579,9 @@ class WheelCog(commands.Cog):
                 filtereddf = filtereddf.query(query_string)
             except Exception as e:
                 logging.error(f"Error processing filter {query_string}: {str(e)}")
-                raise Exception("Something is wrong with one of your filters.") from e
+                raise WheelUserError("Something is wrong with one of your filters.") from e
         if filtereddf.empty:
-            raise Exception(f"Your filter {filter} returned no results")
+            raise WheelUserError(f"Your filter {filter} returned no results")
         selections = filtereddf.to_dict("records")
         if weighting is None:
             for selection in selections:

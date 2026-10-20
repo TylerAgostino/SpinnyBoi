@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import random
+import re
 import threading
 import uuid
 from functools import wraps
@@ -175,6 +176,43 @@ class _WheelOption:
         self.include_text = include_text if include_text is not None else ""
 
 
+_CUSTOM_WEIGHT = re.compile(r"^(?P<text>.+)\s*=\s*(?P<weight>\d+)$")
+
+
+#: Upper bound on a single option's weight. WheelSpinner materializes
+#: one slice per unit of weight, so an unbounded `a=9999999999` would
+#: allocate ~10 GB of list entries and hang the bot.
+MAX_CUSTOM_WEIGHT = 100
+
+
+def parse_custom_options(options_string):
+    """Parse a comma-separated custom-option string into _WheelOptions.
+
+    An option ending in ``=N`` where N is an integer in 1..MAX_CUSTOM_WEIGHT
+    carries weight N; the suffix is stripped from the displayed text
+    (``sorry I'm late=5`` -> "sorry I'm late" x5). Everything else is
+    literal weight-1 text, so ``a=``, ``a=0``, ``a==2``, and overspiced
+    ``a=101`` keep their ``=`` characters verbatim. Empty options are
+    dropped.
+    """
+    options = []
+    for raw in options_string.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        weight = 1
+        match = _CUSTOM_WEIGHT.match(raw)
+        if match:
+            text = match.group("text").strip()
+            parsed_weight = int(match.group("weight"))
+            if 1 <= parsed_weight <= MAX_CUSTOM_WEIGHT and not text.endswith("="):
+                weight = parsed_weight
+                raw = text
+        options.append(_WheelOption(raw, weight))
+    return options
+
+
+
 class WheelCog(commands.Cog):
     def __init__(
         self,
@@ -259,7 +297,7 @@ class WheelCog(commands.Cog):
         "custom_options",
         str,
         required=True,
-        description="Comma-separated custom options",
+        description="Comma-separated options; 'text=N' gives that option weight N (e.g. sorry=3, not sorry=7)",
     )
     @discord.option(
         "role",
@@ -282,7 +320,14 @@ class WheelCog(commands.Cog):
         driver=None,
         bot_response=None,
     ):
-        opts_list = [_WheelOption(opt.strip()) for opt in custom_options.split(",")]
+        opts_list = parse_custom_options(custom_options)
+        if not opts_list:
+            return (
+                "Please provide comma-separated options to spin.",
+                None,
+                None,
+                role,
+            )
         wheel = WheelSpinner.WheelSpinner(opts_list)
         # return_gif does 90 blocking Selenium screenshots — run it off the event loop
         file = await asyncio.to_thread(wheel.return_gif, driver)

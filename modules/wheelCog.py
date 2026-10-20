@@ -176,18 +176,24 @@ class _WheelOption:
         self.include_text = include_text if include_text is not None else ""
 
 
-
 _CUSTOM_WEIGHT = re.compile(r"^(?P<text>.+)\s*=\s*(?P<weight>\d+)$")
+
+
+#: Upper bound on a single option's weight. WheelSpinner materializes
+#: one slice per unit of weight, so an unbounded `a=9999999999` would
+#: allocate ~10 GB of list entries and hang the bot.
+MAX_CUSTOM_WEIGHT = 100
 
 
 def parse_custom_options(options_string):
     """Parse a comma-separated custom-option string into _WheelOptions.
 
-    An option ending in ``=N`` where N is a positive integer carries
-    weight N; the suffix is stripped from the displayed text
+    An option ending in ``=N`` where N is an integer in 1..MAX_CUSTOM_WEIGHT
+    carries weight N; the suffix is stripped from the displayed text
     (``sorry I'm late=5`` -> "sorry I'm late" x5). Everything else is
-    literal weight-1 text, so ``a=``, ``a=0``, and ``a==2`` keep their
-    ``=`` characters verbatim. Empty options are dropped.
+    literal weight-1 text, so ``a=``, ``a=0``, ``a==2``, and overspiced
+    ``a=101`` keep their ``=`` characters verbatim. Empty options are
+    dropped.
     """
     options = []
     for raw in options_string.split(","):
@@ -199,7 +205,7 @@ def parse_custom_options(options_string):
         if match:
             text = match.group("text").strip()
             parsed_weight = int(match.group("weight"))
-            if parsed_weight >= 1 and not text.endswith("="):
+            if 1 <= parsed_weight <= MAX_CUSTOM_WEIGHT and not text.endswith("="):
                 weight = parsed_weight
                 raw = text
         options.append(_WheelOption(raw, weight))
@@ -315,6 +321,13 @@ class WheelCog(commands.Cog):
         bot_response=None,
     ):
         opts_list = parse_custom_options(custom_options)
+        if not opts_list:
+            return (
+                "Please provide comma-separated options to spin.",
+                None,
+                None,
+                role,
+            )
         wheel = WheelSpinner.WheelSpinner(opts_list)
         # return_gif does 90 blocking Selenium screenshots — run it off the event loop
         file = await asyncio.to_thread(wheel.return_gif, driver)

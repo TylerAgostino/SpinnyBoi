@@ -37,11 +37,19 @@ class ParseCustomOptionsTests(unittest.TestCase):
     def test_double_equals_is_literal_text(self):
         self.assertEqual(_pairs("a==2"), [("a==2", 1)])
 
-    def test_internal_equals_survives_with_trailing_weight(self):
-        self.assertEqual(_pairs("red=x3=2"), [("red=x3", 2)])
-
     def test_empty_options_dropped(self):
         self.assertEqual(_pairs("a,, b ,"), [("a", 1), ("b", 1)])
+
+    def test_internal_equals_survives_with_trailing_weight(self):
+        self.assertEqual(_pairs("red=x3=2"), [("red=x3", 2)])
+        self.assertEqual(_pairs("a=b=3"), [("a=b", 3)])
+
+    def test_weight_at_cap_is_honored(self):
+        self.assertEqual(_pairs("a=100"), [("a", 100)])
+
+    def test_weight_over_cap_is_literal_text(self):
+        self.assertEqual(_pairs("a=101"), [("a=101", 1)])
+        self.assertEqual(_pairs("a=99999999999"), [("a=99999999999", 1)])
 
     def test_all_empty_yields_no_options(self):
         self.assertEqual(parse_custom_options(" , , "), [])
@@ -67,6 +75,14 @@ class SpinCustomWiringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(filename, "wheel.gif")
         self.assertEqual(role, None)
 
+    async def test_spin_custom_rejects_all_empty_input(self):
+        cog = SimpleNamespace(get_message=lambda: "spinning")
+        message, file, filename, role = await WheelCog.spin_custom.__wrapped__(
+            cog, None, custom_options=" , , "
+        )
+        self.assertIn("comma-separated options", message)
+        self.assertIsNone(file)
+        self.assertIsNone(filename)
 
 if __name__ == "__main__":
     unittest.main()

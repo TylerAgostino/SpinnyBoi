@@ -65,6 +65,23 @@ def component_callback(view, component_attr: str):
     """The raw callback behind a view's decorated component, unwrapped."""
     return getattr(view, component_attr).callback.func
 
+# Season-discovery catalog the injected fake SRH client returns: main + AM
+# series for the league; the main series owns the active season, so it is the
+# primary series whose option pair is pre-selected.
+CATALOG = {
+    "status": "ok",
+    "league_id": 7,
+    "active_season_id": 29913,
+    "series": [
+        {"series_id": 8812, "series_name": "Beer League", "active": True, "current_season_id": 29913},
+        {"series_id": 13428, "series_name": "Beer League Am", "active": False, "current_season_id": 28000},
+    ],
+    "seasons": [
+        {"season_id": 29913, "season_name": "Season 16", "series_id": 8812, "series_name": "Beer League", "active": True, "series_active": True},
+        {"season_id": 28000, "season_name": "Season 16 Am", "series_id": 13428, "series_name": "Beer League Am", "active": True, "series_active": False},
+    ],
+}
+
 
 class _Fixture(unittest.TestCase):
     """Cog + view construction shared by the command-path tests."""
@@ -73,13 +90,18 @@ class _Fixture(unittest.TestCase):
         self.config = LeagueConfig()
         super().setUp()
 
-    def make_cog(self) -> StandingsCog:
+    def make_srh(self, catalog: Any = None):
+        srh = MagicMock()
+        srh.seasons = MagicMock(return_value=CATALOG if catalog is None else catalog)
+        return srh
+
+    def make_cog(self, catalog: Any = None) -> StandingsCog:
         self.bot = MagicMock()
-        return StandingsCog(self.bot, self.config)
+        return StandingsCog(self.bot, self.config, srh=self.make_srh(catalog))
 
     def make_view(self, cog: StandingsCog, description: str = "",
                   channel_id: int = SOURCE_CHANNEL_ID) -> StandingsView:
-        return StandingsView(cog, _Ctx(channel_id), description)
+        return StandingsView(cog, _Ctx(channel_id), description, CATALOG)
 
     def url(self, path: str, key: str, value: int) -> str:
         return f"https://www.simracerhub.com/scoring/{path}?{key}={value}"
@@ -101,7 +123,7 @@ class StandingsCommandTests(_Fixture):
         self.assertEqual(view.selected_tables, [])
         self.assertIsNone(view.selected_channel)
 
-    def test_view_offers_four_tables_then_a_channel_picker_then_submit(self):
+    def test_view_offers_a_pair_per_discovered_series_then_league_stats(self):
         cog = self.make_cog()
         ctx = _Ctx()
         asyncio.run(StandingsCog.standings.callback(cog, ctx))
@@ -114,10 +136,11 @@ class StandingsCommandTests(_Fixture):
         self.assertEqual(
             [(o.label, o.value, o.default) for o in table_select.options],
             [
-                ("Driver Standings", "driver_standings", True),
-                ("Team Standings", "team_standings", True),
+                ("Beer League Standings", "series:8812:driver", True),
+                ("Beer League Team Standings", "series:8812:team", True),
+                ("Beer League Am Standings", "series:13428:driver", False),
+                ("Beer League Am Team Standings", "series:13428:team", False),
                 ("League Stats", "league_stats", False),
-                ("AM Standings", "am_standings", False),
             ],
         )
 
@@ -131,6 +154,15 @@ class StandingsCommandTests(_Fixture):
 
         self.assertEqual(button.label, "Fetch Standings")
         self.assertEqual(button.style, discord.ButtonStyle.primary)
+
+    def test_discovery_failure_answers_without_the_view(self):
+        cog = self.make_cog(catalog={"status": "error", "seasons": []})
+        ctx = _Ctx()
+        asyncio.run(StandingsCog.standings.callback(cog, ctx))
+        (args, kwargs), = ctx.responses
+        self.assertIn("SimRacerHub", args[0])
+        self.assertTrue(kwargs["ephemeral"])
+        self.assertNotIn("view", kwargs)
 
 
 class PermissionGateTests(_Fixture):
@@ -168,10 +200,15 @@ class SelectCallbackTests(_Fixture):
             cog = self.make_cog()
             view = self.make_view(cog)
             interaction = _Interaction()
-            await component_callback(view, "table_select_callback")(
-                view, _Select(["league_stats", "am_standings"]), interaction
+            # py-cord populates select.values from the interaction payload;
+            # drive that same internal state here.
+            view.table_select._interaction = interaction
+            view.table_select._selected_values = ["league_stats", "series:13428:team"]
+            # dynamically assigned item callbacks receive ONLY the interaction
+            await view._table_select_callback(interaction)
+            self.assertEqual(
+                view.selected_tables, ["league_stats", "series:13428:team"]
             )
-            self.assertEqual(view.selected_tables, ["league_stats", "am_standings"])
             interaction.response.defer.assert_awaited_once()
 
         asyncio.run(run())
@@ -223,19 +260,19 @@ class SubmitCallbackTests(_Fixture):
 
         return asyncio.run(run())
 
-    def test_defaults_capture_driver_and_team_into_the_source_channel(self):
+    def test_defaults_capture_primary_series_driver_and_team_into_the_source_channel(self):
         cog, view, interaction = self._prepared([])
-        series = self.url("season_standings.php", "series_id", self.config.srh_series_id)
+        series = self.url("season_standings.php", "series_id", 8812)
         calls = cog._capture_and_send_table.await_args_list
         self.assertEqual(len(calls), 2)
         driver, team = (c.kwargs for c in calls)
-        self.assertEqual(driver["description"], "Driver Standings")
+        self.assertEqual(driver["description"], "Beer League Standings")
         self.assertEqual(driver["url"], series)
         self.assertEqual(driver["table_selector"], "standings-class-section")
         self.assertTrue(driver["use_class"])
         self.assertEqual(driver["tab_to_click"], "")
         self.assertEqual(driver["channel_id"], SOURCE_CHANNEL_ID)
-        self.assertEqual(team["description"], "Team Standings")
+        self.assertEqual(team["description"], "Beer League Team Standings")
         self.assertEqual(team["url"], series)
         self.assertEqual(team["tab_to_click"], "Team Standings")
         self.assertEqual(team["channel_id"], SOURCE_CHANNEL_ID)
@@ -252,28 +289,29 @@ class SubmitCallbackTests(_Fixture):
         self.assertEqual(
             [(f.name, f.value) for f in embed.fields],
             [
-                ("Driver Standings", "✅ Success"),
-                ("Team Standings", "✅ Success"),
+                ("Beer League Standings", "✅ Success"),
+                ("Beer League Team Standings", "✅ Success"),
                 ("Posted to Channel", f"<#{SOURCE_CHANNEL_ID}>"),
             ],
         )
 
     def test_selection_maps_each_table_to_its_url_and_the_chosen_channel(self):
         cog, view, interaction = self._prepared(
-            ["league_stats", "am_standings"], selected_channel=OTHER_CHANNEL_ID
+            ["league_stats", "series:13428:team"], selected_channel=OTHER_CHANNEL_ID
         )
         calls = cog._capture_and_send_table.await_args_list
         self.assertEqual(len(calls), 2)
         league, am = (c.kwargs for c in calls)
         self.assertEqual(
             league["url"],
-            self.url("league_stats.php", "season_id", self.config.srh_season_id),
+            self.url("league_stats.php", "league_id", self.config.srh_league_id),
         )
         self.assertEqual(league["table_selector"], "react-table")
         self.assertEqual(
             am["url"],
-            self.url("season_standings.php", "series_id", self.config.srh_am_series_id),
+            self.url("season_standings.php", "series_id", 13428),
         )
+        self.assertEqual(am["tab_to_click"], "Team Standings")
         self.assertEqual(league["channel_id"], OTHER_CHANNEL_ID)
         self.assertEqual(am["channel_id"], OTHER_CHANNEL_ID)
         embed = interaction.followups[-1][1]["embed"]
@@ -284,7 +322,7 @@ class SubmitCallbackTests(_Fixture):
 
     def test_description_rides_along_to_the_capture_and_the_embed(self):
         cog, view, interaction = self._prepared(
-            ["driver_standings"], description="race 4 recap"
+            ["series:8812:driver"], description="race 4 recap"
         )
         call = cog._capture_and_send_table.await_args_list[0].kwargs
         self.assertEqual(call["additional_description"], "race 4 recap")
@@ -309,8 +347,8 @@ class SubmitCallbackTests(_Fixture):
         self.assertEqual(
             [(f.name, f.value) for f in embed.fields],
             [
-                ("Driver Standings", "✅ Success"),
-                ("Team Standings", "❌ Failed"),
+                ("Beer League Standings", "✅ Success"),
+                ("Beer League Team Standings", "❌ Failed"),
                 ("Posted to Channel", f"<#{SOURCE_CHANNEL_ID}>"),
             ],
         )

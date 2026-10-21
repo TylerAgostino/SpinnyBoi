@@ -55,6 +55,20 @@ SRH_PAYLOAD = {
     "schedules": [],
 }
 
+# Discovery markup the client fetches before standings (league_series.php /
+# series_seasons.php shapes); season "Season 16" = id 29913.
+SRH_SERIES_INDEX = "<tr class='jsTableRow' id='ser_9'><td class='ctr'><b>Yes</b></td> <td class='wrap'><a href='series_seasons.php?series_id=9'>SR Series</a></td> </tr>"
+SRH_SEASONS = (
+    "series_id=9;\n"
+    "curr_season_id=29913;\n"
+    'seasons=[{id:29913,sname:"Season 16",scrt:100},\n'
+    '{id:28156,sname:"Season 14",scrt:50}];'
+)
+
+
+def srh_fetch_text(url, timeout):
+    return SRH_SERIES_INDEX if "league_series" in url else SRH_SEASONS
+
 
 def make_memory(exploding=False):
     cfg = VectorStoreConfig(channel_ids=(123,), relevance_threshold=0.1)
@@ -78,10 +92,11 @@ def make_web(fetch=None):
 
 
 def make_srh(fetch=None):
-    cfg = SimRacerHubConfig(min_interval_seconds=0.0, default_season_id=29913)
+    cfg = SimRacerHubConfig(min_interval_seconds=0.0, league_id=7)
     return SimRacerHubClient(
         cfg,
         fetch_json=fetch or MagicMock(return_value=SRH_PAYLOAD),
+        fetch_text=srh_fetch_text,
         clock=MagicMock(side_effect=lambda n=[0]: (n.__setitem__(0, n[0] + 1), n[0] * 1000.0)[1]),
     )
 
@@ -186,7 +201,7 @@ class AgentToolSelectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_stat_question_routes_to_simracerhub(self):
         def script(tools):
             srh = tools[0]
-            result = srh(kind="standings", season_id=29913)
+            result = srh(kind="standings", season="Season 14")
             self.assertEqual(result["status"], "ok")
             self.assertTrue(result["rows"])
             row = result["rows"][0] if len(result["rows"]) == 1 else next(

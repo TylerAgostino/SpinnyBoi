@@ -182,7 +182,8 @@ class ScheduleSpinTests(_Fixture):
         self.assertEqual(event.completed, False)
         self.assertEqual(event.cancelled, False)
         self.assertEqual(
-            json.loads(event.data), {"preset_name": "Rotational", "role_id": None}
+            json.loads(event.data),
+            {"preset_name": "Rotational", "custom_options": None, "role_id": None},
         )
 
         self.assertTrue(ctx.deferred)
@@ -209,7 +210,11 @@ class ScheduleSpinTests(_Fixture):
         )
         self.assertEqual(
             json.loads(self.spin_events()[0].data),
-            {"preset_name": "Rotational", "role_id": 1146907150229192747},
+            {
+                "preset_name": "Rotational",
+                "custom_options": None,
+                "role_id": 1146907150229192747,
+            },
         )
 
     def test_username_is_used_when_a_member_has_no_nick(self):
@@ -536,6 +541,179 @@ class PermissionGateTests(_Fixture):
         self.cancel_spin(cog, ctx, event_id)
         self.assertIn("Successfully canceled", _last_text(ctx))
         self.assertEqual(self.scheduler.all_active(), [])
+
+
+class CustomScheduleTests(_Fixture):
+    CUSTOM = "spin_custom"
+
+    def _schedule_custom(self, cog, ctx, custom_options="a=2, b"):
+        return self.schedule_spin(
+            cog, ctx, day_of_week="friday", hour=20, minute=30,
+            custom_options=custom_options,
+        )
+
+    def test_custom_options_scheduled_under_custom_handler(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        message, _, _ = self._schedule_custom(cog, ctx)
+        events = [
+            e for e in self.scheduler.all_active() if e.function_name == self.CUSTOM
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].timestamp, datetime.datetime(2026, 10, 16, 20, 30).timestamp())
+        data = json.loads(events[0].data)
+        self.assertEqual(data["custom_options"], "a=2, b")
+        self.assertIsNone(data["preset_name"])
+        self.assertIn("custom (a=2, b)", message)
+        self.assertIn("custom (a=2, b)", _last_text(ctx))
+
+    def test_missing_both_preset_and_options_is_rejected(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        self.schedule_spin(cog, ctx, day_of_week="friday", hour=20, minute=30)
+        self.assertIn("exactly one", _last_text(ctx))
+        self.assertEqual(self.scheduler.all_active(), [])
+
+    def test_supplying_both_preset_and_options_is_rejected(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        self.schedule_spin(
+            cog, ctx, day_of_week="friday", hour=20, minute=30,
+            preset_name="Rotational", custom_options="a,b",
+        )
+        self.assertIn("exactly one", _last_text(ctx))
+        self.assertEqual(self.scheduler.all_active(), [])
+
+    def test_whitespace_only_custom_options_is_rejected(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        self._schedule_custom(cog, ctx, custom_options=" , ")
+        self.assertIn("actual options", _last_text(ctx))
+        self.assertEqual(self.scheduler.all_active(), [])
+
+    def test_long_custom_options_label_is_truncated_payload_kept(self):
+        cog = self.make_cog()
+        ctx = _Ctx()
+        long_options = "opt" + "x" * 300
+        message, _, _ = self._schedule_custom(cog, ctx, custom_options=long_options)
+        events = [
+            e for e in self.scheduler.all_active() if e.function_name == self.CUSTOM
+        ]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(json.loads(events[0].data)["custom_options"], long_options)
+        self.assertIn("…", message)
+        self.assertNotIn("x" * 120, message)
+        self.assertLess(len(_last_text(ctx)), 300)
+
+    def test_mentions_in_custom_options_are_escaped_in_replies(self):
+        from discord.utils import escape_mentions
+
+        cog = self.make_cog()
+        ctx = _Ctx()
+        self._schedule_custom(cog, ctx, custom_options="@everyone, here")
+        confirmation = _last_text(ctx)
+        self.assertIn(f"custom ({escape_mentions('@everyone')}, here)", confirmation)
+        self.assertNotIn("custom (@everyone", confirmation)
+
+        list_ctx = _Ctx()
+        self.list_spins(cog, list_ctx)
+        body = _last_text(list_ctx)
+        self.assertIn(f"**Custom Options:** {escape_mentions('@everyone')}, here", body)
+        self.assertNotIn("**Custom Options:** @everyone", body)
+
+    def test_due_custom_spin_fires_through_registered_handler(self):
+        cog = self.make_cog()  # registers spin_custom -> _run_scheduled_custom_spin
+        cog.spin_custom_new_message = AsyncMock()
+        role = MagicMock()
+        self.channel.guild.get_role = MagicMock(return_value=role)
+        event_id = self.scheduler.schedule(
+            time.time() - 10,
+            self.CUSTOM,
+            INTERACTION_ID,
+            CHANNEL_ID,
+            data=json.dumps(
+                {"preset_name": None, "custom_options": "x, y", "role_id": 77}
+            ),
+        )
+        self.assertEqual(asyncio.run(self.scheduler.run_due()), 1)
+        cog.spin_custom_new_message.assert_awaited_once_with(
+            ctx=self.channel, custom_options="x, y", role=role
+        )
+        self.channel.guild.get_role.assert_called_once_with(77)
+        self.assertEqual(self.row(event_id)["completed"], 1)
+
+    def test_custom_spin_runs_untagged_when_role_was_deleted(self):
+        cog = self.make_cog()
+        cog.spin_custom_new_message = AsyncMock()
+        self.channel.guild.get_role = MagicMock(return_value=None)
+        self.scheduler.schedule(
+            time.time() - 10,
+            self.CUSTOM,
+            INTERACTION_ID,
+            CHANNEL_ID,
+            data=json.dumps(
+                {"preset_name": None, "custom_options": "x, y", "role_id": 999}
+            ),
+        )
+        self.assertEqual(asyncio.run(self.scheduler.run_due()), 1)
+        cog.spin_custom_new_message.assert_awaited_once_with(
+            ctx=self.channel, custom_options="x, y", role=None
+        )
+
+    def test_list_shows_custom_alongside_preset(self):
+        cog = self.make_cog()
+        self.scheduler.schedule(
+            datetime.datetime(2026, 10, 16, 20, 30).timestamp(),
+            SPIN,
+            1,
+            CHANNEL_ID,
+            data=json.dumps({"preset_name": "Rotational", "role_id": None}),
+        )
+        custom_id = self.scheduler.schedule(
+            datetime.datetime(2026, 10, 18, 7, 0).timestamp(),
+            self.CUSTOM,
+            2,
+            CHANNEL_ID,
+            data=json.dumps(
+                {"preset_name": None, "custom_options": "beer, duty", "role_id": None}
+            ),
+        )
+        ctx = _Ctx()
+        self.list_spins(cog, ctx)
+        body = _last_text(ctx)
+        self.assertIn("**Preset:** Rotational", body)
+        self.assertIn("**Custom Options:** beer, duty", body)
+        self.assertIn(f"**ID:** {custom_id}", body)
+
+    def test_cancel_still_labels_legacy_preset_events(self):
+        cog = self.make_cog()
+        event_id = self.scheduler.schedule(
+            datetime.datetime(2026, 10, 18, 7, 0).timestamp(),
+            SPIN,
+            2,
+            CHANNEL_ID,
+            data=json.dumps({"preset_name": "Rotational", "role_id": None}),
+        )
+        ctx = _Ctx()
+        self.cancel_spin(cog, ctx, event_id)
+        self.assertIn("'Rotational'", _last_text(ctx))
+        self.assertEqual(self.row(event_id)["cancelled"], 1)
+
+    def test_cancel_works_for_custom_events(self):
+        cog = self.make_cog()
+        event_id = self.scheduler.schedule(
+            datetime.datetime(2026, 10, 18, 7, 0).timestamp(),
+            self.CUSTOM,
+            2,
+            CHANNEL_ID,
+            data=json.dumps(
+                {"preset_name": None, "custom_options": "beer, duty", "role_id": None}
+            ),
+        )
+        ctx = _Ctx()
+        self.cancel_spin(cog, ctx, event_id)
+        self.assertIn("custom (beer, duty)", _last_text(ctx))
+        self.assertEqual(self.row(event_id)["cancelled"], 1)
 
 
 def _last_text(ctx: _Ctx) -> str:

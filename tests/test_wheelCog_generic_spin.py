@@ -78,7 +78,7 @@ class FailureTests(unittest.TestCase):
             ("I can't find a preset named missing.", None, None),
         )
 
-    def test_tab_generate_failure_passthrough(self):
+    def test_tab_generate_failure_is_generic(self):
         cog = make_cog(
             preset_with([("drivers", "")]), tab_options=RuntimeError("boom tab")
         )
@@ -86,8 +86,14 @@ class FailureTests(unittest.TestCase):
             result = run(cog)
         self.assertEqual(
             result,
-            ("The preset p ran into an error: boom tab", None, None),
+            (
+                "The preset p ran into an error: something unexpected went wrong"
+                " - details are in the bot logs.",
+                None,
+                None,
+            ),
         )
+        self.assertNotIn("boom tab", result[0])
 
 
 class WheelAssemblyTests(unittest.TestCase):

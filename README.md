@@ -12,7 +12,6 @@ https://discord.com/api/oauth2/authorize?client_id=1051558649379692584&permissio
 | `/spin preset …` | Spin a wheel preset (autocomplete over preset names) |
 | `/spin custom a,b,c` / `/spin order a,b,c` | One-off weighted spin / random ordering from comma-separated options |
 | `/schedule spin …` / `/schedule list` / `/schedule cancel …` | Schedule preset spins |
-| `/spin auditor` | Restart the session-auditor container via Portainer webhook (admin-only) |
 | `/register`, `/check_registrations` | Driver registration against the league Google Sheet (car-number assignment, roster checks) |
 | `/mark_attendance` | Attendance from iRacing race results into the attendance Google Sheet |
 | `/standings` | SimRacerHub standings rendered to an image (headless Firefox) |

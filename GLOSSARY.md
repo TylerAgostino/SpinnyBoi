@@ -13,6 +13,14 @@ leverage, locality) follows the `codebase-design` skill.
   season prompt. Built once at wiring time via `LeagueConfig.from_env()`;
   `docker_compose.yaml` env vars override the baked defaults. A season flip is
   one edit here.
+- **Season discovery** — `SimRacerHubClient.seasons()` (`modules/simracerhub.py`)
+  turns the one configured `SRH_LEAGUE_ID` into the league's **series
+  catalog**: every series with its historical *and* active seasons, scraped
+  from `league_series.php` / `series_seasons.php`. The active season is
+  whichever SRH marks active (per-series `current_season_id`); the tools
+  take seasons by name (`season: "Season 14"`) and resolve them through
+  this catalog. An ambiguous name (two series, same season name) is an
+  error listing the options, never a silent pick.
 - **Incident** — a rules-infraction poll run per race by `incidentCog`
   (in-memory poll state only).
 
@@ -62,7 +70,10 @@ leverage, locality) follows the `codebase-design` skill.
 - **Chat tool** — no shared construction frame module exists;
   `ChatHandler._enabled_tools()` collects tools straight from the adapter
   singletons — `league_memory` (`lookup_tool`), `web_lookup`
-  (`lookup_tool`), `simracerhub` (`stats_tool`). An unconfigured or broken
+  (`lookup_tool`), `simracerhub` (`stats_tool`; kinds `standings`,
+  `race_results`, `seasons` — `standings`/`race_results` accept a `season`
+  name resolved via **season discovery**, defaulting to the active season
+  when it is unambiguous). An unconfigured or broken
   adapter is logged and skipped: a dead tool never kills the reply.
   The SRH client self-polices (paced fetches, backoff retries honouring
   `Retry-After`, short payload-cache TTL) because simracerhub.com

@@ -297,6 +297,16 @@ class UrlBuilderTests(unittest.TestCase):
         self.assertIn("search_suggest.php", url)
         self.assertIn("q=Speedy+McFast", url)
 
+    def test_series_index_url(self):
+        url = build_series_index_url(4007)
+        self.assertIn("league_series.php", url)
+        self.assertIn("league_id=4007", url)
+
+    def test_seasons_index_url(self):
+        url = build_seasons_index_url(8812)
+        self.assertIn("series_seasons.php", url)
+        self.assertIn("series_id=8812", url)
+
 
 class StandingsParsingTests(unittest.TestCase):
     def test_sorted_by_points_and_positioned(self):

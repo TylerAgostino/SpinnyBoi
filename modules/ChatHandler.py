@@ -151,12 +151,15 @@ CHAT_SYSTEM_PROMPT = """You are a bot called SpinnyBoi behaving as a normal pers
              - lookup_web_topic: quick, current information (recent news, current
                events, who won what, today's facts). Use it when someone references
                something topical you wouldn't already know, and weave the result in.
-             - get_simracerhub_stats: the league's racing data on SimRacerHub -
-               season standings (points, wins, incidents, safety rating per driver)
-               and recent race results (start/finish position, points). Use it when
-               someone asks about league results, who is winning the championship,
-               how someone has been racing, or crash counts; weave the numbers in
-               naturally.
+            - get_simracerhub_stats: the league's racing data on SimRacerHub -
+              season standings (points, wins, incidents, safety rating per driver),
+              recent race results (start/finish position, points), and the list of
+              the league's seasons and which one is active. Standings/results are
+              for the current season unless a specific season is asked for by name.
+              Use it when
+              someone asks about league results, who is winning the championship,
+              how someone has been racing, or crash counts; weave the numbers in
+              naturally.
 
              You are given the last few messages in the channel in JSON format. The final JSON message is the one that triggers your response,
              so respond accordingly. Format your response as a JSON object with the following structure:

@@ -14,9 +14,9 @@ Env knobs (empty string or unset = default):
     LEAGUE_POINTS_SHEET         points/attendance sheet tab (default "Points Entry S15-17")
     LEAGUE_POINTS_ID_COLUMN     iRacing customer-id column header (default "iRacing ID")
     IRACING_LEAGUE_ID           iRacing league id (default 8579)
-    SRH_SERIES_ID               SimRacerHub main series id (default 8812)
-    SRH_AM_SERIES_ID            SimRacerHub AM series id (default 13428)
-    SRH_SEASON_ID               SimRacerHub season id for league stats (default 28156)
+    SRH_LEAGUE_ID               SimRacerHub league id (default 4007); the
+                                simracerhub stats client infers active/historical
+                                seasons from it — no per-season id to update
     LEAGUE_DEBUG_GUILD_IDS      comma-separated slash-command guild ids
     LEAGUE_AUTO_DELETE_CHANNEL_ID  channel whose messages are deleted (default 1362287075142930442)
 """
@@ -32,9 +32,7 @@ DEFAULT_REGISTRATION_SHEET = "SpinnyBoiRegistrations"
 DEFAULT_POINTS_SHEET = "Points Entry S15-17"
 DEFAULT_POINTS_ID_COLUMN = "iRacing ID"
 DEFAULT_IRACING_LEAGUE_ID = 8579
-DEFAULT_SRH_SERIES_ID = 8812
-DEFAULT_SRH_AM_SERIES_ID = 13428
-DEFAULT_SRH_SEASON_ID = 28156
+DEFAULT_SRH_LEAGUE_ID = 4007
 DEFAULT_DEBUG_GUILD_IDS = (420037391454044171, 981935710514839572)
 DEFAULT_AUTO_DELETE_CHANNEL_ID = 1362287075142930442
 
@@ -87,9 +85,7 @@ class LeagueConfig:
     points_sheet_name: str = DEFAULT_POINTS_SHEET
     points_iracing_id_column: str = DEFAULT_POINTS_ID_COLUMN
     iracing_league_id: int = DEFAULT_IRACING_LEAGUE_ID
-    srh_series_id: int = DEFAULT_SRH_SERIES_ID
-    srh_am_series_id: int = DEFAULT_SRH_AM_SERIES_ID
-    srh_season_id: int = DEFAULT_SRH_SEASON_ID
+    srh_league_id: int = DEFAULT_SRH_LEAGUE_ID
     debug_guild_ids: Tuple[int, ...] = field(default=DEFAULT_DEBUG_GUILD_IDS)
     auto_delete_channel_id: int = DEFAULT_AUTO_DELETE_CHANNEL_ID
 
@@ -113,11 +109,7 @@ class LeagueConfig:
             iracing_league_id=_env_int(
                 "IRACING_LEAGUE_ID", DEFAULT_IRACING_LEAGUE_ID, env
             ),
-            srh_series_id=_env_int("SRH_SERIES_ID", DEFAULT_SRH_SERIES_ID, env),
-            srh_am_series_id=_env_int(
-                "SRH_AM_SERIES_ID", DEFAULT_SRH_AM_SERIES_ID, env
-            ),
-            srh_season_id=_env_int("SRH_SEASON_ID", DEFAULT_SRH_SEASON_ID, env),
+            srh_league_id=_env_int("SRH_LEAGUE_ID", DEFAULT_SRH_LEAGUE_ID, env),
             debug_guild_ids=_env_int_tuple(
                 "LEAGUE_DEBUG_GUILD_IDS", DEFAULT_DEBUG_GUILD_IDS, env
             ),

@@ -72,7 +72,7 @@ The bot exits immediately, naming the variable, if a required env var is missing
 
 ### Feature toggles & tuning
 
-`SIMRACERHUB_ENABLED`, `SIMRACERHUB_SEASON_ID`, `SIMRACERHUB_SERIES_ID`, `SIMRACERHUB_TIMEOUT_SECONDS`, `SIMRACERHUB_MIN_INTERVAL_SECONDS`, `SIMRACERHUB_MAX_RETRIES`, `SIMRACERHUB_RETRY_BASE_SECONDS`, `SIMRACERHUB_CACHE_TTL_SECONDS`, `SIMRACERHUB_MAX_ROWS`; `WEB_LOOKUP_ENABLED`, `WEB_LOOKUP_TIMEOUT_SECONDS`, `WEB_LOOKUP_MIN_INTERVAL_SECONDS`, `WEB_LOOKUP_MAX_RESULTS`, `WEB_LOOKUP_MAX_QUERY_CHARS`, `WEB_LOOKUP_MAX_SNIPPET_CHARS` — unset means enabled/default per `modules/env_config.py` semantics.
+`SIMRACERHUB_ENABLED`, `SIMRACERHUB_LEAGUE_ID` (falls back to `SRH_LEAGUE_ID`), `SIMRACERHUB_TIMEOUT_SECONDS`, `SIMRACERHUB_MIN_INTERVAL_SECONDS`, `SIMRACERHUB_MAX_RETRIES`, `SIMRACERHUB_RETRY_BASE_SECONDS`, `SIMRACERHUB_CACHE_TTL_SECONDS`, `SIMRACERHUB_MAX_ROWS`; `WEB_LOOKUP_ENABLED`, `WEB_LOOKUP_TIMEOUT_SECONDS`, `WEB_LOOKUP_MIN_INTERVAL_SECONDS`, `WEB_LOOKUP_MAX_RESULTS`, `WEB_LOOKUP_MAX_QUERY_CHARS`, `WEB_LOOKUP_MAX_SNIPPET_CHARS` — unset means enabled/default per `modules/env_config.py` semantics.
 
 ### Misc
 
@@ -80,7 +80,7 @@ The bot exits immediately, naming the variable, if a required env var is missing
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///data/spinny.db` | Scheduler state (SQLite); `data/` is git-ignored |
 | `LEAGUE_DEBUG_GUILD_IDS` | league default | Guilds where slash commands register instantly |
-| `LEAGUE_STAFF_ROLE_ID`, `LEAGUE_DRIVER_ROLE_ID`, `LEAGUE_AUTO_DELETE_CHANNEL_ID`, `LEAGUE_SEASON`, `SRH_SEASON_ID`, `SRH_SERIES_ID`, `SRH_AM_SERIES_ID` | league defaults | Roles/channels/season ids |
+| `LEAGUE_STAFF_ROLE_ID`, `LEAGUE_DRIVER_ROLE_ID`, `LEAGUE_AUTO_DELETE_CHANNEL_ID`, `LEAGUE_SEASON`, `SRH_LEAGUE_ID` | league defaults | Roles/channels/ids; `SRH_LEAGUE_ID` is the only SimRacerHub id — seasons and series are discovered from it |
 
 ## Tests
 

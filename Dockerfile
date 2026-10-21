@@ -27,7 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     firefox-esr \
     && echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections \
-    && echo "deb http://deb.debian.org/debian bookworm contrib non-free" > /etc/apt/sources.list.d/contrib.list \
+    && . /etc/os-release \
+    && echo "deb http://deb.debian.org/debian ${VERSION_CODENAME} contrib non-free" > /etc/apt/sources.list.d/contrib.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends ttf-mscorefonts-installer \
     && curl -fsSL -o /tmp/geckodriver.tar.gz https://github.com/mozilla/geckodriver/releases/download/v0.36.0/geckodriver-v0.36.0-linux64.tar.gz \

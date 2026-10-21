@@ -1,9 +1,9 @@
 """Unit tests for the SimRacerHub stats client (modules/simracerhub.py).
 
-No network: the client takes an injected ``fetch_json`` callable, and the
-parsers/URL builders are pure functions tested against a trimmed fixture that
-mirrors the real get_standings.php payload shape (string numerics, dict-keyed
-maps).
+No network: the client takes injected ``fetch_json``/``fetch_text`` callables;
+the parsers/URL builders are pure functions tested against trimmed fixtures
+that mirror the real get_standings.php payload shape (string numerics,
+dict-keyed maps) and the league_series/series_seasons discovery markup.
 
 Run: python -m unittest tests.test_simracerhub
 """
@@ -14,19 +14,26 @@ import unittest
 import urllib.error
 from unittest.mock import MagicMock, patch
 
-from modules.league_config import DEFAULT_SRH_SEASON_ID
+from modules.league_config import DEFAULT_SRH_LEAGUE_ID
 from modules.simracerhub import (
     MAX_RETRY_WAIT_SECONDS,
     SRHRetryableFetchError,
     SimRacerHubClient,
     SimRacerHubConfig,
+    assemble_season_catalog,
+    build_seasons_index_url,
+    build_series_index_url,
     build_suggest_url,
     build_standings_url,
     clean_driver_filter,
     driver_matches,
+    match_season,
     normalize_days,
     normalize_results,
     normalize_standings,
+    parse_seasons_page,
+    parse_series_index,
+    season_number,
 )
 
 NOW = 1_789_600_000  # fixed clock for time-filter tests
@@ -119,6 +126,38 @@ NESTED_PAYLOAD = {
     ],
 }
 
+# Discovery fixtures: the league_series.php / series_seasons.php markup in
+# the shape captured live from SRH (2026-10) - jsTableRow rows with a Yes/No
+# Active cell, and the ``seasons=[{id,sname,scrt,...}]`` JS literal array
+# plus the ``curr_season_id`` pointer.
+SERIES_INDEX_HTML = """
+<table><tr class='jsTableHdr'><th>Active</th></tr>
+<tr class='jsTableRow' id='ser_9'><td class='ctr'><b>Yes</b></td> <td class='wrap'><a href='series_seasons.php?series_id=9' title='View Seasons in this Series'>Test Series</a></td> </tr>
+<tr class='jsTableRow' id='ser_10'><td class='ctr'><b>No</b></td> <td class='wrap'><a href='series_seasons.php?series_id=10' title='View Seasons in this Series'>Retired Series</a></td> </tr>
+</table>"""
+
+SEASONS_HTML_9 = """
+<script language='javascript'>
+series_id=9;
+curr_season_id=2;
+seasons=[{id:1,sname:"Season 1",scrt:100,kw:3,ps:"pos",scrt_str:"Jan 1, 2024",ns:9,nr:9},
+{id:2,sname:"Season 2",scrt:200,kw:4,ps:"scheme",scrt_str:"Jan 1, 2025",ns:9,nr:9}];
+</script>"""
+
+SEASONS_HTML_10 = """
+series_id=10;
+curr_season_id=3;
+seasons=[{id:3,sname:"Vintage Cup",scrt:50,scrt_str:"Jan 1, 2023",ns:9,nr:9}];
+"""
+
+
+def discovery_fetch_text(url, timeout):
+    if "league_series" in url:
+        return SERIES_INDEX_HTML
+    if "series_id=10" in url:
+        return SEASONS_HTML_10
+    return SEASONS_HTML_9
+
 
 class NestedScheduleParsingTests(unittest.TestCase):
     def test_race_keyed_schedules_flatten_to_driver_rows(self):
@@ -168,20 +207,39 @@ class TeamAwarenessTests(unittest.TestCase):
         self.assertEqual({r["name"] for r in rows}, {"Danny Dummy"})
 
 
-def make_client(fetch=None, config=None, clock_values=None, sleep=None):
+class FakeClock:
+    """Hand-driven monotonic clock for pacing/cache tests: recorded sleeps
+    advance the value, so paced waits resolve; tests set gaps by hand."""
+
+    def __init__(self, value=0.0):
+        self.value = value
+        self.sleeps = []
+
+    def __call__(self):
+        return self.value
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.value += seconds
+
+
+def make_client(fetch=None, config=None, clock=None, sleep=None, fetch_text=None):
     fetch = fetch if fetch is not None else MagicMock(return_value=SAMPLE_PAYLOAD)
-    if clock_values:
-        values = list(clock_values)
-        clock = MagicMock(side_effect=lambda: values.pop(0) if values else 0.0)
-    else:
+    if clock is None:
         ticks = {"n": 0}
 
         def clock():
-            now = ticks["n"] * 1000.0  # generous spacing; rate-limit tests pass explicit clocks
+            now = ticks["n"] * 1000.0  # generous spacing; pacing tests drive FakeClock
             ticks["n"] += 1
             return now
-    client = SimRacerHubClient(config or SimRacerHubConfig(), fetch_json=fetch, clock=clock, sleep=sleep)
-    return client
+
+    return SimRacerHubClient(
+        config or SimRacerHubConfig(league_id=7),
+        fetch_json=fetch,
+        fetch_text=fetch_text or discovery_fetch_text,
+        clock=clock,
+        sleep=sleep,
+    )
 
 def never_sleep(seconds):  # keep tests from really sleeping
     pass
@@ -309,18 +367,16 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.max_retries, 2)
         self.assertEqual(cfg.retry_base_seconds, 2.0)
         self.assertEqual(cfg.cache_ttl_seconds, 300.0)
-        # unset SIMRACERHUB_SEASON_ID falls back to the league default season
-        self.assertEqual(cfg.default_season_id, DEFAULT_SRH_SEASON_ID)
-        self.assertIsNone(cfg.default_series_id)
+        # the only SRH id needed; discovery fills the seasons in from it
+        self.assertEqual(cfg.league_id, DEFAULT_SRH_LEAGUE_ID)
 
     def test_env_mapping_is_isolated_from_process_env(self):
         # SRH_* values in the supplied mapping win; the real process
         # environment must not leak in through the LeagueConfig fallback.
-        cfg = SimRacerHubConfig.from_env(
-            {"SRH_SEASON_ID": "99999", "SIMRACERHUB_SERIES_ID": "4242"}
-        )
-        self.assertEqual(cfg.default_season_id, 99999)
-        self.assertEqual(cfg.default_series_id, 4242)
+        cfg = SimRacerHubConfig.from_env({"SRH_LEAGUE_ID": "111"})
+        self.assertEqual(cfg.league_id, 111)
+        cfg = SimRacerHubConfig.from_env({"SIMRACERHUB_LEAGUE_ID": "222"})
+        self.assertEqual(cfg.league_id, 222)
 
     def test_disabled_flag(self):
         for value in ("0", "false", "OFF"):
@@ -328,11 +384,10 @@ class ConfigTests(unittest.TestCase):
 
     def test_clamping_and_bad_values(self):
         cfg = SimRacerHubConfig.from_env(
-            {"SIMRACERHUB_MAX_ROWS": "999", "SIMRACERHUB_TIMEOUT_SECONDS": "junk", "SIMRACERHUB_SEASON_ID": "29913"}
+            {"SIMRACERHUB_MAX_ROWS": "999", "SIMRACERHUB_TIMEOUT_SECONDS": "junk"}
         )
         self.assertEqual(cfg.max_rows, 50)
         self.assertEqual(cfg.timeout_seconds, 8.0)
-        self.assertEqual(cfg.default_season_id, 29913)
         cfg = SimRacerHubConfig.from_env(
             {
                 "SIMRACERHUB_MAX_RETRIES": "99",
@@ -349,76 +404,81 @@ class ClientTests(unittest.TestCase):
     def test_standings_success(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
         client = make_client(fetch)
-        out = client.standings(season_id=29913)
+        out = client.standings(season=2)
         self.assertEqual(out["status"], "ok")
-        self.assertEqual(out["season_id"], 29913)
+        self.assertEqual(out["season_id"], 2)
         self.assertEqual(out["rows"][0]["name"], "Danny Dummy")
         url, timeout = fetch.call_args[0]
         self.assertIn("get_standings.php", url)
+        self.assertIn("season_id=2", url)
         self.assertEqual(timeout, 8.0)
 
     def test_results_success_passes_days(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
         client = make_client(fetch)
-        out = client.results(season_id=29913, driver="mcfast", days=365)
+        out = client.results(season=2, driver="mcfast", days=365)
         self.assertEqual(out["status"], "ok")
         self.assertEqual({r["name"] for r in out["rows"]}, {"Speedy McFast2"})
 
-    def test_default_season_from_config(self):
-        client = make_client(config=SimRacerHubConfig(default_season_id=123))
-        out = client.standings()
-        self.assertEqual(out["season_id"], 123)
-
-    def test_no_season_configured(self):
+    def test_default_season_is_discovered_active(self):
         out = make_client().standings()
-        self.assertEqual(out["status"], "no_season")
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["season_id"], 2)  # the series' curr_season_id
+        self.assertTrue(out["season"]["active"])
+
+    def test_no_league_id_configured(self):
+        out = make_client(config=SimRacerHubConfig(league_id=None)).standings()
+        self.assertEqual(out["status"], "no_league")
         self.assertEqual(out["rows"], [])
 
     def test_api_error_payload_handled(self):
-        fetch = MagicMock(return_value={"error": "Season ID 999999999 not found "})
-        out = make_client(fetch).standings(season_id=999999999)
+        fetch = MagicMock(return_value={"error": "Season ID 1 not found "})
+        out = make_client(fetch).standings(season=1)
         self.assertEqual(out["status"], "no_data")
         self.assertIn("not found", out["error"])
 
     def test_transient_network_errors_retried_then_surfaced(self):
         fetch = MagicMock(side_effect=ConnectionError("boom"))
         sleeps = []
-        out = make_client(fetch, sleep=sleeps.append).results(season_id=1)
+        out = make_client(fetch, sleep=sleeps.append).results(season=1)
         self.assertEqual(out, {"status": "error", "rows": []})
         self.assertEqual(fetch.call_count, 3)  # 1 try + 2 retries (default budget)
         self.assertEqual(sleeps, [2.0, 4.0])  # exponential from retry_base_seconds
 
     def test_timeout_retried_then_surfaced(self):
         fetch = MagicMock(side_effect=socket.timeout("timed out"))
-        out = make_client(fetch, sleep=never_sleep).standings(season_id=1)
+        out = make_client(fetch, sleep=never_sleep).standings(season=1)
         self.assertEqual(out["status"], "error")
         self.assertEqual(fetch.call_count, 3)
 
     def test_non_dict_payload(self):
-        out = make_client(MagicMock(return_value=[])).standings(season_id=1)
+        out = make_client(MagicMock(return_value=[])).standings(season=1)
         self.assertEqual(out["status"], "error")
 
     def test_pacing_waits_instead_of_dropping_calls(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
-        sleeps = []
-        # second call only 1s after the first (min interval 3s): the client
-        # waits the remaining 2s and serves the call instead of answering
+        # FakeClock sleeps advance the clock, so discovery pacing resolves at
+        # min_interval; the standings->results gap is then set to 1s (< 3s
+        # min) and the client waits out the remainder instead of answering
         # "rate_limited". different seasons keep the payload cache out of it.
+        clock = FakeClock(100.0)
         client = make_client(
             fetch,
-            clock_values=[100.0, 101.0, 102.0, 102.0, 105.0],
-            sleep=sleeps.append,
+            config=SimRacerHubConfig(league_id=7, min_interval_seconds=3.0),
+            clock=clock,
+            sleep=clock.sleep,
         )
-        self.assertEqual(client.standings(season_id=1)["status"], "ok")
-        second = client.results(season_id=2, days=3650)
+        self.assertEqual(client.standings(season=1)["status"], "ok")
+        clock.value += 1.0
+        second = client.results(season=2, days=3650)
         self.assertEqual(second["status"], "ok")
-        self.assertEqual(sleeps, [2.0])
+        self.assertEqual(clock.sleeps[-1], 2.0)
         self.assertEqual(fetch.call_count, 2)
 
     def test_disabled(self):
         fetch = MagicMock()
         client = SimRacerHubClient(SimRacerHubConfig(enabled=False), fetch_json=fetch)
-        self.assertEqual(client.standings(season_id=1)["status"], "disabled")
+        self.assertEqual(client.standings(season=1)["status"], "disabled")
         fetch.assert_not_called()
 
     def test_resolve_driver(self):
@@ -441,7 +501,7 @@ class FetchResilienceTests(unittest.TestCase):
     def test_429_retried_after_retry_after_seconds(self):
         fetch = MagicMock(side_effect=[http_error(429, 7), SAMPLE_PAYLOAD])
         sleeps = []
-        out = make_client(fetch, sleep=sleeps.append).standings(season_id=1)
+        out = make_client(fetch, sleep=sleeps.append).standings(season=1)
         self.assertEqual(out["status"], "ok")
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(sleeps, [7.0])
@@ -449,27 +509,27 @@ class FetchResilienceTests(unittest.TestCase):
     def test_retry_after_capped_at_max_wait(self):
         fetch = MagicMock(side_effect=[http_error(429, 9999), SAMPLE_PAYLOAD])
         sleeps = []
-        out = make_client(fetch, sleep=sleeps.append).standings(season_id=1)
+        out = make_client(fetch, sleep=sleeps.append).standings(season=1)
         self.assertEqual(out["status"], "ok")
         self.assertEqual(sleeps, [MAX_RETRY_WAIT_SECONDS])
 
     def test_503_retries_exponentially(self):
         fetch = MagicMock(side_effect=[http_error(503), http_error(503), SAMPLE_PAYLOAD])
         sleeps = []
-        out = make_client(fetch, sleep=sleeps.append).results(season_id=1, days=3650)
+        out = make_client(fetch, sleep=sleeps.append).results(season=1, days=3650)
         self.assertEqual(out["status"], "ok")
         self.assertEqual(fetch.call_count, 3)
         self.assertEqual(sleeps, [2.0, 4.0])
 
     def test_permanent_http_status_not_retried(self):
         fetch = MagicMock(side_effect=http_error(404))
-        out = make_client(fetch, sleep=never_sleep).standings(season_id=1)
+        out = make_client(fetch, sleep=never_sleep).standings(season=1)
         self.assertEqual(out["status"], "error")
         self.assertEqual(fetch.call_count, 1)
 
     def test_retry_budget_exhausted_surfaces_error(self):
         fetch = MagicMock(side_effect=http_error(429))
-        cfg = SimRacerHubConfig(max_retries=1, default_season_id=1)
+        cfg = SimRacerHubConfig(max_retries=1, league_id=7)
         out = make_client(fetch, config=cfg, sleep=never_sleep).standings()
         self.assertEqual(out["status"], "error")
         self.assertEqual(fetch.call_count, 2)
@@ -479,43 +539,142 @@ class FetchResilienceTests(unittest.TestCase):
             side_effect=[SRHRetryableFetchError("<html>slow down</html>"), SAMPLE_PAYLOAD]
         )
         sleeps = []
-        out = make_client(fetch, sleep=sleeps.append).standings(season_id=1)
+        out = make_client(fetch, sleep=sleeps.append).standings(season=1)
         self.assertEqual(out["status"], "ok")
         self.assertEqual(sleeps, [2.0])
 
     def test_unrelated_error_not_retried(self):
         fetch = MagicMock(side_effect=ValueError("bad"))
-        out = make_client(fetch).standings(season_id=1)
+        out = make_client(fetch).standings(season=1)
         self.assertEqual(out["status"], "error")
         self.assertEqual(fetch.call_count, 1)
 
     def test_cache_collapses_repeat_requests_same_url(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
-        client = make_client(fetch, clock_values=[10.0, 10.0, 11.0])
-        first = client.standings(season_id=1)
-        second = client.results(season_id=1, days=365)
+        cfg = SimRacerHubConfig(league_id=7, min_interval_seconds=0.0)
+        client = make_client(fetch, config=cfg, clock=FakeClock(10.0), sleep=lambda s: None)
+        first = client.standings(season=1)
+        second = client.results(season=1, days=365)
         self.assertEqual((first["status"], second["status"]), ("ok", "ok"))
         self.assertEqual(fetch.call_count, 1)
 
     def test_cache_expires_after_ttl(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
-        cfg = SimRacerHubConfig(default_season_id=1, cache_ttl_seconds=5.0)
-        client = make_client(
-            fetch, config=cfg, clock_values=[0.0, 0.0, 6.0, 6.0], sleep=never_sleep
-        )
-        self.assertEqual(client.standings()["status"], "ok")
-        self.assertEqual(client.results(days=3650)["status"], "ok")
+        cfg = SimRacerHubConfig(league_id=7, cache_ttl_seconds=5.0, min_interval_seconds=0.0)
+        clock = FakeClock(0.0)
+        client = make_client(fetch, config=cfg, clock=clock, sleep=clock.sleep)
+        self.assertEqual(client.standings(season=1)["status"], "ok")
+        clock.value = 6.0
+        self.assertEqual(client.results(season=1, days=3650)["status"], "ok")
         self.assertEqual(fetch.call_count, 2)
 
     def test_zero_ttl_disables_cache(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
-        cfg = SimRacerHubConfig(default_season_id=1, cache_ttl_seconds=0.0)
-        client = make_client(
-            fetch, config=cfg, clock_values=[0.0, 0.0, 1.0, 1.0], sleep=never_sleep
-        )
-        self.assertEqual(client.standings()["status"], "ok")
-        self.assertEqual(client.results(days=3650)["status"], "ok")
+        cfg = SimRacerHubConfig(league_id=7, cache_ttl_seconds=0.0, min_interval_seconds=0.0)
+        clock = FakeClock(0.0)
+        client = make_client(fetch, config=cfg, clock=clock, sleep=clock.sleep)
+        self.assertEqual(client.standings(season=1)["status"], "ok")
+        self.assertEqual(client.results(season=1, days=3650)["status"], "ok")
         self.assertEqual(fetch.call_count, 2)
+
+
+class SeasonDiscoveryTests(unittest.TestCase):
+    """Pure parsing/assembly/matching of the league season catalog."""
+
+    def test_parse_series_index(self):
+        rows = parse_series_index(SERIES_INDEX_HTML)
+        self.assertEqual([r["series_id"] for r in rows], [9, 10])
+        self.assertEqual(rows[0]["series_name"], "Test Series")
+        self.assertTrue(rows[0]["active"])
+        self.assertFalse(rows[1]["active"])
+
+    def test_parse_seasons_page(self):
+        parsed = parse_seasons_page(SEASONS_HTML_9)
+        self.assertEqual(parsed["current_season_id"], 2)
+        self.assertEqual([s["season_id"] for s in parsed["seasons"]], [1, 2])
+        self.assertEqual(parsed["seasons"][0]["season_name"], "Season 1")
+        self.assertEqual(parsed["seasons"][0]["created"], 100)
+
+    def test_assemble_orders_newest_first_and_flags_active(self):
+        catalog = assemble_season_catalog(
+            7,
+            [
+                ({"series_id": 9, "series_name": "Test Series", "active": True}, parse_seasons_page(SEASONS_HTML_9)),
+                ({"series_id": 10, "series_name": "Retired Series", "active": False}, parse_seasons_page(SEASONS_HTML_10)),
+            ],
+        )
+        self.assertEqual(catalog["active_season_id"], 2)
+        self.assertEqual([s["season_id"] for s in catalog["seasons"]], [2, 1, 3])
+        entry = next(s for s in catalog["seasons"] if s["season_id"] == 2)
+        self.assertTrue(entry["active"])
+        self.assertEqual(entry["series_name"], "Test Series")
+
+    def test_active_season_ambiguous_when_active_series_disagree(self):
+        # main + AM both Active, each with its own current season: picking
+        # one silently could route to the wrong table, so there is no default.
+        am_page = {
+            "current_season_id": 3,
+            "seasons": [{"season_id": 3, "season_name": "AM Season 1", "created": 300}],
+        }
+        catalog = assemble_season_catalog(
+            7,
+            [
+                ({"series_id": 9, "series_name": "Main", "active": True}, parse_seasons_page(SEASONS_HTML_9)),
+                ({"series_id": 10, "series_name": "AM", "active": True}, am_page),
+            ],
+        )
+        self.assertIsNone(catalog["active_season_id"])
+        entry, err = match_season(None, catalog)
+        self.assertIsNone(entry)
+        status, options = err
+        self.assertEqual(status, "ambiguous_season")
+        self.assertEqual({o["season_id"] for o in options}, {2, 3})
+
+    def test_match_season_tiers(self):
+        catalog = assemble_season_catalog(
+            7,
+            [({"series_id": 9, "series_name": "Test Series", "active": True}, parse_seasons_page(SEASONS_HTML_9))],
+        )
+        self.assertEqual(match_season(2, catalog)[0]["season_id"], 2)
+        self.assertEqual(match_season("S2", catalog)[0]["season_id"], 2)
+        self.assertEqual(match_season("Season 1", catalog)[0]["season_id"], 1)
+        self.assertEqual(match_season("active", catalog)[0]["season_id"], 2)
+        entry, err = match_season("Season 99", catalog)
+        self.assertIsNone(entry)
+        self.assertEqual(err[0], "unknown_season")
+        self.assertEqual({o["season_id"] for o in err[1]}, {1, 2})
+
+    def test_season_number_helper(self):
+        self.assertEqual(season_number({"season_name": "Season 16"}), 16)
+        self.assertEqual(season_number({"season_name": "S16"}), 16)
+        self.assertIsNone(season_number({"season_name": "Season 16 Am"}))
+
+
+class SeasonDiscoveryClientTests(unittest.TestCase):
+    def test_seasons_lists_catalog(self):
+        out = make_client().seasons()
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["league_id"], 7)
+        self.assertEqual(out["active_season_id"], 2)
+        self.assertEqual([s["season_id"] for s in out["seasons"]], [2, 1, 3])
+
+    def test_standings_season_name_resolves_to_discovered_id(self):
+        fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
+        make_client(fetch).standings(season="Season 1")
+        url, _ = fetch.call_args[0]
+        self.assertIn("season_id=1", url)
+
+    def test_discovery_failure_degrades(self):
+        text = MagicMock(side_effect=ValueError("gone"))
+        out = make_client(fetch_text=text).standings()
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(out["rows"], [])
+
+    def test_unknown_season_lists_options(self):
+        out = make_client().standings(season="Season 99")
+        self.assertEqual(out["status"], "unknown_season")
+        self.assertEqual(out["season_query"], "Season 99")
+        self.assertEqual({s["season_id"] for s in out["seasons"]}, {1, 2, 3})
 
 
 class ToolRegistrationTests(unittest.TestCase):
@@ -526,10 +685,10 @@ class ToolRegistrationTests(unittest.TestCase):
         self.assertIn("kind", str(spec["inputSchema"]))
 
     def test_tool_kind_routing(self):
-        client = make_client()
-        tool = client.stats_tool()
-        self.assertEqual(tool(kind="Standings", season_id=1)["status"], "ok")
-        self.assertEqual(tool(kind="races", season_id=1, days=3650)["status"], "ok")
+        tool = make_client().stats_tool()
+        self.assertEqual(tool(kind="Standings", season="Season 2")["status"], "ok")
+        self.assertEqual(tool(kind="races", season="Season 2", days=3650)["status"], "ok")
+        self.assertEqual(tool(kind="seasons")["status"], "ok")
 
     def test_tool_bad_kind(self):
         tool = make_client().stats_tool()

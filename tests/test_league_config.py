@@ -12,7 +12,7 @@ from modules.league_config import (
     DEFAULT_DEBUG_GUILD_IDS,
     DEFAULT_DRIVER_ROLE_ID,
     DEFAULT_SEASON,
-    DEFAULT_SRH_SERIES_ID,
+    DEFAULT_SRH_LEAGUE_ID,
     LeagueConfig,
 )
 
@@ -23,9 +23,7 @@ CONFIG_ENV = [
     "LEAGUE_POINTS_SHEET",
     "LEAGUE_POINTS_ID_COLUMN",
     "IRACING_LEAGUE_ID",
-    "SRH_SERIES_ID",
-    "SRH_AM_SERIES_ID",
-    "SRH_SEASON_ID",
+    "SRH_LEAGUE_ID",
     "LEAGUE_DEBUG_GUILD_IDS",
     "LEAGUE_AUTO_DELETE_CHANNEL_ID",
 ]
@@ -55,9 +53,7 @@ class LeagueConfigDefaultsTests(unittest.TestCase):
         self.assertEqual(cfg.points_sheet_name, "Points Entry S15-17")
         self.assertEqual(cfg.points_iracing_id_column, "iRacing ID")
         self.assertEqual(cfg.iracing_league_id, 8579)
-        self.assertEqual(cfg.srh_series_id, 8812)
-        self.assertEqual(cfg.srh_am_series_id, 13428)
-        self.assertEqual(cfg.srh_season_id, 28156)
+        self.assertEqual(cfg.srh_league_id, DEFAULT_SRH_LEAGUE_ID)
         self.assertEqual(cfg.debug_guild_ids, (420037391454044171, 981935710514839572))
         self.assertEqual(cfg.auto_delete_channel_id, 1362287075142930442)
 
@@ -68,20 +64,20 @@ class LeagueConfigEnvTests(unittest.TestCase):
 
     def test_env_overrides(self):
         os.environ["LEAGUE_SEASON"] = "17"
-        os.environ["SRH_SERIES_ID"] = "9999"
+        os.environ["SRH_LEAGUE_ID"] = "9999"
         os.environ["LEAGUE_POINTS_SHEET"] = "Points Entry S17-19"
         cfg = LeagueConfig.from_env()
         self.assertEqual(cfg.season, 17)
-        self.assertEqual(cfg.srh_series_id, 9999)
+        self.assertEqual(cfg.srh_league_id, 9999)
         self.assertEqual(cfg.points_sheet_name, "Points Entry S17-19")
 
     def test_empty_string_means_unset(self):
         # docker compose passes unset host vars through as empty strings
         os.environ["LEAGUE_SEASON"] = ""
-        os.environ["SRH_SERIES_ID"] = "  "
+        os.environ["SRH_LEAGUE_ID"] = "  "
         cfg = LeagueConfig.from_env()
         self.assertEqual(cfg.season, DEFAULT_SEASON)
-        self.assertEqual(cfg.srh_series_id, DEFAULT_SRH_SERIES_ID)
+        self.assertEqual(cfg.srh_league_id, DEFAULT_SRH_LEAGUE_ID)
 
     def test_garbage_int_falls_back_to_default(self):
         os.environ["LEAGUE_SEASON"] = "sixteen"

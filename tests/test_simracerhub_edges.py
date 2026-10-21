@@ -136,7 +136,7 @@ class ResultsCutoffTests(unittest.TestCase):
 
 
 def client_with(fetch_result=None, fetch_exc=None):
-    config = SimRacerHubConfig(enabled=True, default_season_id=5, max_rows=10)
+    config = SimRacerHubConfig(enabled=True, league_id=5, max_rows=10)
     fetcher = mock.MagicMock()
     if fetch_exc:
         fetcher.side_effect = fetch_exc
@@ -144,16 +144,17 @@ def client_with(fetch_result=None, fetch_exc=None):
         fetcher.return_value = fetch_result
     client = SimRacerHubClient(config, fetch_json=fetcher)
     client._sleep = mock.MagicMock()
+    client._season_for = lambda season=None: ({"season_id": 5, "active": True}, None)
     return client
 
 
 class StatusPayloadTests(unittest.TestCase):
-    def test_missing_season_short_circuits_both_apis(self):
-        config = SimRacerHubConfig(enabled=True, default_season_id=None, max_rows=10)
+    def test_missing_league_short_circuits_both_apis(self):
+        config = SimRacerHubConfig(enabled=True, max_rows=10)
         client = SimRacerHubClient(config, fetch_json=mock.MagicMock())
         for call in (client.standings(), client.results()):
-            self.assertEqual(call["status"], "no_season")
-            self.assertIn("no season_id", call["error"])
+            self.assertEqual(call["status"], "no_league")
+            self.assertIn("no league_id", call["error"])
 
     def test_non_dict_payload_is_error_not_crash(self):
         for kind in ("standings", "results"):
@@ -176,7 +177,7 @@ class StatusPayloadTests(unittest.TestCase):
             result = getattr(client, kind)()
             with self.subTest(kind=kind):
                 self.assertEqual(result["status"], "no_data")
-                self.assertEqual(result["season_id"], 5)
+                self.assertEqual(result["season"]["season_id"], 5)
 
 
 class ResolveDriverEdgesTests(unittest.TestCase):
@@ -229,7 +230,7 @@ class SingletonTests(unittest.TestCase):
         srh._simracerhub = self._saved
 
     def test_shared_instance_cached_across_calls(self):
-        config = SimRacerHubConfig(enabled=True, default_season_id=5, max_rows=10)
+        config = SimRacerHubConfig(enabled=True, league_id=5, max_rows=10)
         with mock.patch.object(
             SimRacerHubConfig, "from_env", classmethod(lambda cls: config)
         ):

@@ -126,13 +126,16 @@ class FailureTests(unittest.TestCase):
         with self.assertRaisesRegex(NoTabError, "drivers"):
             gen(frame=empty)
 
-    def test_read_tab_exception_propagates(self):
+    def test_read_tab_exception_is_sanitized(self):
         boom = SimpleNamespace(
             read_tab=mock.AsyncMock(side_effect=RuntimeError("sheet api down"))
         )
         cog = SimpleNamespace(presets=boom)
-        with self.assertRaisesRegex(RuntimeError, "sheet api down"):
+        with self.assertRaisesRegex(
+            RuntimeError, r"I couldn't read the sheet tab 'drivers'"
+        ) as ctx:
             asyncio.run(WheelCog.generate_option_set(cog, "drivers", ""))
+        self.assertNotIn("sheet api down", str(ctx.exception))
 
     def test_filter_on_unknown_column_reports_bad_filter(self):
         with self.assertRaisesRegex(Exception, "Something is wrong"):

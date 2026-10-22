@@ -11,6 +11,7 @@ from unittest import mock
 
 from modules.env_config import MissingEnvError
 from modules.preset_source import PresetNotFound, PresetSource
+import modules.preset_source as preset_source_module
 
 PRESETS_CSV = (
     "Fullname,My Cup Series,Weeknight Battle\n"
@@ -49,6 +50,11 @@ class PresetSourceTests(unittest.TestCase):
                 ("My Cup Series", "series:8579 season:16"),
                 ("Weeknight Battle", "day:=friday"),
             ],
+        )
+
+    def test_preset_tabs_lists_the_filter_columns(self):
+        self.assertEqual(
+            self.source.preset("S16").tabs(), ["My Cup Series", "Weeknight Battle"]
         )
 
     def test_resolve_tab_matches_case_insensitively(self):
@@ -92,6 +98,40 @@ class FromEnvTests(unittest.TestCase):
         url = source._csv_url("presets")
         self.assertIn("/d/abc123/", url)
         self.assertNotIn("None", url)
+
+
+class DefaultSingletonTests(unittest.TestCase):
+    """PresetSource.default(): the shared source is built from the
+    environment exactly once, on first use, then handed out unchanged."""
+
+    def _reset(self):
+        original = preset_source_module._DEFAULT
+        self.addCleanup(setattr, preset_source_module, "_DEFAULT", original)
+        return original
+
+    def test_default_is_lazy_shared_and_built_from_env_once(self):
+        self._reset()
+        preset_source_module._DEFAULT = None
+        sentinel = object()
+        with mock.patch.object(
+            PresetSource, "from_env", return_value=sentinel
+        ) as from_env:
+            first = PresetSource.default()
+            second = PresetSource.default()
+        self.assertIs(first, sentinel)
+        self.assertIs(second, first)
+        self.assertEqual(from_env.call_count, 1)
+
+    def test_existing_default_returned_without_touching_env(self):
+        self._reset()
+        existing = object()
+        preset_source_module._DEFAULT = existing
+        with mock.patch.object(
+            PresetSource,
+            "from_env",
+            side_effect=AssertionError("from_env must not run twice"),
+        ):
+            self.assertIs(PresetSource.default(), existing)
 
 
 if __name__ == "__main__":

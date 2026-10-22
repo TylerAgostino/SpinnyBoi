@@ -24,6 +24,7 @@ from discord.ext import commands as ext_commands
 
 from modules.attendanceCog import AttendanceCog
 from modules.league_config import LeagueConfig, STAFF_ROLE_ID
+from modules.sheets_client import SheetsError
 from tests.test_sheets_client import _client
 
 SHEET_ID = "attendance-sheet-id"
@@ -400,6 +401,57 @@ class MarkAttendanceCommandTests(_Fixture):
         self.assertEqual(embed.title, "Error Marking Attendance")
         self.assertIn("Column 'S16R99' was not found", embed.description)
         self.assertEqual(store["Points"][1][:2], ["10", ""])
+
+    def test_more_than_twenty_unmatched_ids_are_truncated_in_the_embed(self):
+        store = self._store()
+        finishers = [_driver(10, 10)] + [
+            _driver(cid, 10) for cid in range(900, 921)
+        ]  # 21 finishers the sheet has never heard of
+        payload = _race_payload(race_results=finishers, total_laps=10)
+        cog = self.make_cog(store, iracing=FakeIRacing(payload))
+        ctx = _Ctx()
+        asyncio.run(
+            self.run_command(cog, ctx, subsession_id=SUBSESSION_ID, round=1, season=16)
+        )
+
+        warning = _fields(_embeds(ctx)[0])["21 Finisher(s) Not Found in Sheet"]
+        self.assertIn("900", warning)
+        self.assertIn(" ... (+1 more)`", warning)
+        self.assertIn("919", warning)  # the 20th id is shown; the cap is exactly 20
+        self.assertNotIn("920", warning)  # the 21st id stays behind the cap
+
+
+class SheetMarkingHelperTests(_Fixture):
+    """_mark_attendance_in_sheet direct: header validation and odd rows."""
+
+    def test_missing_iracing_id_column_lists_available_headers(self):
+        store = {"Points": [["iRacing ID", "S16R1"], ["10", ""]]}
+        cog = self.make_cog(store)
+        with self.assertRaises(SheetsError) as caught:
+            cog._mark_attendance_in_sheet("Points", "Cust ID", "S16R1", {10})
+        message = str(caught.exception)
+        self.assertIn("Column 'Cust ID' was not found in sheet headers", message)
+        self.assertIn("Available headers: ['iRacing ID', 'S16R1']", message)
+        self.assertEqual(store["Points"][1], ["10", ""])  # nothing written
+
+    def test_rows_shorter_than_the_id_column_are_skipped(self):
+        store = {
+            "Points": [
+                ["Driver", "iRacing ID", "S16R1"],
+                ["Al", "10", ""],
+                ["Buddy"],  # shorter than the id column index
+                ["Cy", "", ""],
+            ]
+        }
+        cog = self.make_cog(store)
+        stats = cog._mark_attendance_in_sheet(
+            "Points", "iRacing ID", "S16R1", {10, 11}
+        )
+        self.assertEqual(stats["matched"], 1)
+        self.assertEqual(stats["updated"], 1)
+        self.assertEqual(stats["unmatched_ids"], [11])
+        self.assertEqual(store["Points"][2], ["Buddy"])  # short row untouched
+        self.assertEqual(store["Points"][1], ["Al", "10", "0"])
 
 
 class PermissionGateTests(_Fixture):

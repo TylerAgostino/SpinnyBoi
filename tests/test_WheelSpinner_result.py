@@ -56,6 +56,24 @@ class DeterministicSpinTests(unittest.TestCase):
         spinner = WheelSpinner.create_spindex(["x", "y", "z"])
         self.assertIn(spinner.result.winner, {"x", "y", "z"})
 
+    def test_malformed_next_spin_degrades_to_none_not_a_crash(self):
+        # A string whose split() yields no fields trips the defensive
+        # IndexError guard: the spin still completes, next_spin becomes
+        # None, and the bad value is logged.
+        class UnusableSplitStr(str):
+            def split(self, sep=None, maxsplit=-1):
+                return []
+
+        with self.assertLogs(level="ERROR") as logs:
+            spinner = WheelSpinner(
+                [Opt("solo", on_select=UnusableSplitStr("Tab filter"))]
+            )
+        self.assertIsNone(spinner.next_spin)
+        self.assertIsNone(spinner.result.next_spin)
+        self.assertIn(
+            "Invalid next spin: Tab filter. Ignoring.", "\n".join(logs.output)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

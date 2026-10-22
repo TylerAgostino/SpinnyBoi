@@ -122,6 +122,25 @@ class ParseChatReplyTests(unittest.TestCase):
         self.assertIsNone(content)
         self.assertIsInstance(msg, str)
 
+    def test_close_think_tag_truncates_reasoning(self):
+        # the raw reply stream may carry reasoning ahead of the JSON;
+        # everything before the first think-close tag is cut, and the
+        # transformed msg the caller keeps no longer holds the thinking
+        close_tag = "<" + "/" + "think" + ">"
+        raw = (
+            "long reasoning" + close_tag + ' noise {"user": "SpinnyBoi", "content": "real"}'
+        )
+        msg, content = ChatHandler._parse_chat_reply(raw)
+        self.assertEqual(content, "real")
+        self.assertNotIn("long reasoning", msg)
+
+    def test_malformed_json_returns_none_content(self):
+        # starts with a brace but never parses: the JSONDecodeError branch
+        # owns the failure, transformed msg comes back for the retry
+        msg, content = ChatHandler._parse_chat_reply('{"content": "unclosed}')
+        self.assertIsNone(content)
+        self.assertIn("content", msg)
+
 
 class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
     async def test_parses_json_reply(self):
@@ -308,6 +327,40 @@ class RespondInChatTests(unittest.IsolatedAsyncioTestCase):
         # reformat directives are for parse retries only
         self.assertNotIn("JSON", retry_prompt)
 
+    async def test_bad_history_entry_skipped_with_debug_log(self):
+        """One poison history message must not sink the scan: the entry is
+        debug-logged and skipped, the good neighbors still reach the model."""
+        class _Poisoned:
+            id = 999
+
+            def __getattr__(self, name):
+                raise RuntimeError("tombstoned author")
+
+        hist = [
+            make_discord_message("good before", nick="a"),
+            _Poisoned(),
+            make_discord_message("good after", nick="b"),
+        ]
+        trigger = make_discord_message("hey")
+        bot = make_bot_user(hist)
+        agent = fake_agent(['{"content": "yo"}'])
+        with patch.object(ChatHandler, "_make_agent", return_value=agent) as make_agent, \
+             patch.object(ChatHandler, "get_league_memory", return_value=None), \
+             patch.object(ChatHandler, "get_web_lookup", return_value=None), \
+             patch.object(ChatHandler, "get_simracerhub", return_value=None), \
+             self.assertLogs(level="DEBUG") as logs:
+            out = await ChatHandler.respond_in_chat(trigger, bot)
+        self.assertEqual(out, "yo")
+        entries = make_agent.call_args.args[2]
+        self.assertEqual(len(entries), 2)
+        # channel history arrives newest-first and is reversed by the scan,
+        # so the fake's insertion order flips on the way into the prompt
+        self.assertIn("good after", entries[0]["content"][0]["text"])
+        self.assertIn("good before", entries[1]["content"][0]["text"])
+        skip_logs = [r for r in logs.output if "Skipping history entry 999" in r]
+        self.assertTrue(skip_logs, "skipped entry must be debug-logged")
+        self.assertIn("tombstoned author", skip_logs[0])
+
     def test_make_agent_copies_history_list(self):
         history = [{"role": "user", "content": [{"text": "hi"}]}]
         agent = ChatHandler._make_agent(MagicMock(), "sys", history)
@@ -404,6 +457,22 @@ class AttachmentBlockTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(await ChatHandler._attachment_image_block(gif))
         gif.read.assert_not_called()
 
+    async def test_oversize_after_download_rejected_before_decode(self):
+        # declared size passes the pre-download gate but the payload is over
+        # the cap: rejected before any Pillow decode touches the bytes
+        att = make_attachment(
+            size=64, data=b"x" * (ChatHandler.MAX_VISION_IMAGE_BYTES + 1)
+        )
+        with patch.object(ChatHandler, "_normalize_image_bytes") as normalize:
+            self.assertIsNone(await ChatHandler._attachment_image_block(att))
+        normalize.assert_not_called()
+
+    async def test_empty_download_yields_none(self):
+        empty = make_attachment(data=b"")
+        with patch.object(ChatHandler, "_normalize_image_bytes") as normalize:
+            self.assertIsNone(await ChatHandler._attachment_image_block(empty))
+        normalize.assert_not_called()
+
 class VisionPassThroughTests(unittest.IsolatedAsyncioTestCase):
     async def _run(self, history_msgs, trigger_attachments, env=None):
         agent = fake_agent(['{"user": "SpinnyBoi", "content": "nice shot"}'])
@@ -498,6 +567,22 @@ class VisionPassThroughTests(unittest.IsolatedAsyncioTestCase):
             [b"B" * 100, b"C" * 100],
         )
 
+    async def test_bad_attachment_skipped_but_images_survive(self):
+        # a vision target that answers with no block (non-image) is skipped
+        # in the budget walk, not fatal: the good image still ships
+        atts = [
+            make_attachment(content_type="application/pdf", data=b"PDF"),
+            make_attachment(data=b"IMG"),
+        ]
+        agent, _ = await self._run([], atts)
+        self.assertEqual(atts[0].read.await_count, 0)
+        prompt = agent.invoke_async.call_args.args[0]
+        self.assertIsInstance(prompt, list)
+        self.assertEqual(
+            [img["source"]["bytes"] for img in self._images(prompt)], [b"IMG"]
+        )
+
+
 class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_text(self):
         agent = fake_agent(["Patience, mortal."])
@@ -529,6 +614,25 @@ class WorkingOnItTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, "go go go")
         self.assertIs(make_agent.call_args.args[0], marker)
 
+    async def test_empty_reply_uses_canned_fallback(self):
+        # a blank LLM answer still ships a canned status line, warning logged
+        agent = fake_agent(["   "])
+        with patch.object(ChatHandler, "_make_agent", return_value=agent), \
+             self.assertLogs(level="WARNING") as logs:
+            out = await ChatHandler.working_on_it()
+        self.assertIn(out, ChatHandler._WORKING_FALLBACKS)
+        self.assertTrue(any("empty status message" in r for r in logs.output))
+
+    async def test_llm_failure_uses_canned_fallback(self):
+        # the LLM being down never propagates: canned message + warning
+        agent = MagicMock()
+        agent.invoke_async = AsyncMock(side_effect=RuntimeError("ollama down"))
+        with patch.object(ChatHandler, "_make_agent", return_value=agent), \
+             self.assertLogs(level="WARNING") as logs:
+            out = await ChatHandler.working_on_it()
+        self.assertIn(out, ChatHandler._WORKING_FALLBACKS)
+        self.assertTrue(any("LLM unavailable" in r for r in logs.output))
+
 
 class ExtractTextTests(unittest.TestCase):
     def test_plain_string(self):
@@ -542,6 +646,22 @@ class ExtractTextTests(unittest.TestCase):
         r = FakeAgentResult("final")
         r.message["content"].insert(0, {"reasoningContent": {}})
         self.assertEqual(ChatHandler._extract_text(r), "final")
+
+    def test_object_without_message_stringified(self):
+        class Odd:
+            def __str__(self):
+                return "odd-result"
+
+        self.assertEqual(ChatHandler._extract_text(Odd()), "odd-result")
+
+    def test_non_dict_message_stringified(self):
+        class Weird:
+            message = "not a block list"
+
+            def __str__(self):
+                return "weird-result"
+
+        self.assertEqual(ChatHandler._extract_text(Weird()), "weird-result")
 
 
 class ModelParamsTests(unittest.TestCase):
@@ -595,6 +715,21 @@ class NormalizeImageTests(unittest.TestCase):
         # fake bytes are the server's business exactly as before normalization
         out, fmt = ChatHandler._normalize_image_bytes(b"GIF89a", "gif")
         self.assertEqual((out, fmt), (b"GIF89a", "gif"))
+
+    def test_reencode_without_gain_returns_original_bytes(self):
+        # incompressible noise PNG over the re-encode cap but inside the
+        # pixel cap: a second encode buys nothing, and the inference server
+        # receives byte-for-byte the payload it was already getting
+        raw = os.urandom(1300 * 1300 * 3)
+        img = Image.frombytes("RGB", (1300, 1300), raw)
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        data = buf.getvalue()
+        self.assertGreater(len(data), ChatHandler.MAX_VISION_REENCODE_BYTES)
+        with patch.dict(os.environ, {"CHAT_IMAGE_MAX_DIM": "1568"}):
+            out, fmt = ChatHandler._normalize_image_bytes(data, "png")
+        self.assertEqual(out, data)
+        self.assertEqual(fmt, "png")
 
 
 def stuck_agent():

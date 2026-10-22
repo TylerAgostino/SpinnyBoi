@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from modules.league_config import DEFAULT_SRH_LEAGUE_ID
 from modules.simracerhub import (
     MAX_RETRY_WAIT_SECONDS,
+    USER_AGENT,
     SRHRetryableFetchError,
     SimRacerHubClient,
     SimRacerHubConfig,
@@ -34,6 +35,7 @@ from modules.simracerhub import (
     parse_seasons_page,
     parse_series_index,
     season_number,
+    _default_fetch_text,
 )
 
 NOW = 1_789_600_000  # fixed clock for time-filter tests
@@ -150,6 +152,34 @@ curr_season_id=3;
 seasons=[{id:3,sname:"Vintage Cup",scrt:50,scrt_str:"Jan 1, 2023",ns:9,nr:9}];
 """
 
+# Rows that cannot drive discovery: one whose link points at a different
+# series id than its ``ser_<id>`` row, one with no seasons link at all.
+MISMATCHED_SERIES_HTML = """
+<table>
+<tr class='jsTableRow' id='ser_9'><td class='ctr'><b>Yes</b></td> <td class='wrap'><a href='series_seasons.php?series_id=99' title='View Seasons in this Series'>Wrong Link Series</a></td> </tr>
+<tr class='jsTableRow' id='ser_10'><td class='ctr'><b>No</b></td> <td class='wrap'>No Link Series</td> </tr>
+<tr class='jsTableRow' id='ser_11'><td class='ctr'><b>Yes</b></td> <td class='wrap'><a href='series_seasons.php?series_id=11' title='View Seasons in this Series'>Good Series</a></td> </tr>
+</table>"""
+
+# A season name whose JS-literal escapes are invalid JSON (``\\x`` is not a
+# JSON escape); the parser must fall back to the raw text.
+SEASONS_HTML_BAD_ESCAPE = """
+series_id=11;
+curr_season_id=4;
+seasons=[{id:4,sname:"Bad\\x41 Escape",scrt:410,scrt_str:"Feb 1, 2026",ns:9,nr:9}];
+"""
+
+# A league whose only series page carries no ``seasons=[...]`` array.
+GHOST_SERIES_INDEX_HTML = """
+<table><tr class='jsTableRow' id='ser_12'><td class='ctr'><b>Yes</b></td> <td class='wrap'><a href='series_seasons.php?series_id=12' title='View Seasons in this Series'>Ghost Series</a></td> </tr>
+</table>"""
+
+NO_SEASONS_HTML = """
+<script language='javascript'>
+series_id=12;
+curr_season_id=0;
+</script>"""
+
 
 def discovery_fetch_text(url, timeout):
     if "league_series" in url:
@@ -256,6 +286,21 @@ def http_error(code, retry_after=None):
         headers,
         None,
     )
+
+
+class EmptyAttemptsInt(int):
+    """int subclass that makes ``max(1, v)`` pick a *negative* value so the
+    retry loop's ``range`` is empty — the only way to reach the loop's
+    terminal fallthrough guard, which must raise, never return None."""
+
+    def __add__(self, other):
+        return EmptyAttemptsInt(int(self) + int(other))
+
+    def __radd__(self, other):
+        return EmptyAttemptsInt(int(other) + int(self))
+
+    def __gt__(self, other):
+        return True
 
 
 class QueryFormattingTests(unittest.TestCase):
@@ -491,6 +536,21 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client.standings(season=1)["status"], "disabled")
         fetch.assert_not_called()
 
+    def test_disabled_envelopes_for_every_entry_point(self):
+        fetch = MagicMock()
+        text = MagicMock()
+        client = SimRacerHubClient(
+            SimRacerHubConfig(enabled=False),
+            fetch_json=fetch,
+            fetch_text=text,
+        )
+        self.assertEqual(client.seasons(), {"status": "disabled", "seasons": []})
+        self.assertEqual(client.seasons(league_id=9), {"status": "disabled", "seasons": []})
+        self.assertEqual(client.results(season=1), {"status": "disabled", "rows": []})
+        self.assertEqual(client.resolve_driver("Speedy"), {"status": "disabled", "drivers": []})
+        fetch.assert_not_called()
+        text.assert_not_called()
+
     def test_resolve_driver(self):
         fetch = MagicMock(return_value={"drivers": [{"id": 71940, "name": "Speedy McFast", "is_ai": False}], "series": []})
         out = make_client(fetch).resolve_driver("Speedy")
@@ -559,6 +619,18 @@ class FetchResilienceTests(unittest.TestCase):
         self.assertEqual(out["status"], "error")
         self.assertEqual(fetch.call_count, 1)
 
+    def test_retry_loop_fallthrough_guard_raises(self):
+        # every attempt normally returns or re-raises; the loop's terminal
+        # AssertionError is only reachable when the attempts range is empty.
+        # The fake transport records that it (and the patched sleep seam)
+        # never ran.
+        fetch = MagicMock()
+        cfg = SimRacerHubConfig(league_id=7, max_retries=EmptyAttemptsInt(-2))
+        client = make_client(fetch, config=cfg, sleep=never_sleep)
+        with self.assertRaisesRegex(AssertionError, "unreachable"):
+            client._fetch_with_retry(build_standings_url(1), fetch)
+        fetch.assert_not_called()
+
     def test_cache_collapses_repeat_requests_same_url(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
         cfg = SimRacerHubConfig(league_id=7, min_interval_seconds=0.0)
@@ -598,12 +670,29 @@ class SeasonDiscoveryTests(unittest.TestCase):
         self.assertTrue(rows[0]["active"])
         self.assertFalse(rows[1]["active"])
 
+    def test_parse_series_index_skips_rows_without_matching_link(self):
+        # a row linking to a *different* series id would misroute season
+        # discovery, and a row with no link cannot be expanded at all
+        rows = parse_series_index(MISMATCHED_SERIES_HTML)
+        self.assertEqual([r["series_id"] for r in rows], [11])
+        self.assertEqual(rows[0]["series_name"], "Good Series")
+
     def test_parse_seasons_page(self):
         parsed = parse_seasons_page(SEASONS_HTML_9)
         self.assertEqual(parsed["current_season_id"], 2)
         self.assertEqual([s["season_id"] for s in parsed["seasons"]], [1, 2])
         self.assertEqual(parsed["seasons"][0]["season_name"], "Season 1")
         self.assertEqual(parsed["seasons"][0]["created"], 100)
+
+    def test_parse_seasons_page_bad_json_escape_keeps_raw_text(self):
+        parsed = parse_seasons_page(SEASONS_HTML_BAD_ESCAPE)
+        season = parsed["seasons"][0]
+        self.assertEqual(parsed["current_season_id"], 4)
+        # invalid JSON escapes do not drop the season; the title falls back
+        # to the raw regex-group text
+        self.assertEqual(season["season_id"], 4)
+        self.assertEqual(season["season_name"], "Bad\\x41 Escape")
+        self.assertEqual(season["created"], 410)
 
     def test_assemble_orders_newest_first_and_flags_active(self):
         catalog = assemble_season_catalog(
@@ -640,6 +729,45 @@ class SeasonDiscoveryTests(unittest.TestCase):
         self.assertEqual(status, "ambiguous_season")
         self.assertEqual({o["season_id"] for o in options}, {2, 3})
 
+    def test_active_season_ref_without_any_active_entry_lists_all_seasons(self):
+        # Retired-only league: no entry matches the (absent) active season and
+        # there is not a crowd of competing current seasons, so the
+        # unqualified ref degrades to unknown_season with the whole catalog.
+        catalog = assemble_season_catalog(
+            7,
+            [({"series_id": 10, "series_name": "Retired Series", "active": False}, parse_seasons_page(SEASONS_HTML_10))],
+        )
+        self.assertIsNone(catalog["active_season_id"])
+        for ref in (None, "active"):
+            entry, err = match_season(ref, catalog)
+            self.assertIsNone(entry)
+            status, options = err
+            self.assertEqual(status, "unknown_season")
+            self.assertEqual({o["season_id"] for o in options}, {3})
+            self.assertEqual(set(options[0]), {"season_id", "season_name", "series_name", "active"})
+
+    def test_ambiguous_season_ref_lists_the_matching_tier(self):
+        catalog = {
+            "seasons": [
+                {"season_id": 5, "season_name": "Twin Cup", "series_name": "Main", "active": False},
+                {"season_id": 6, "season_name": "Twin Cup", "series_name": "AM", "active": False},
+                {"season_id": 90, "season_name": "Season 9", "series_name": "Main", "active": False},
+                {"season_id": 91, "season_name": "Season 9", "series_name": "AM", "active": False},
+            ],
+            "active_season_id": None,
+        }
+        entry, err = match_season("Twin Cup", catalog)
+        self.assertIsNone(entry)
+        status, options = err
+        self.assertEqual(status, "ambiguous_season")
+        self.assertEqual([o["season_id"] for o in options], [5, 6])
+        # a bare number matching several seasons by season number is likewise
+        # never guessed
+        entry, err = match_season(9, catalog)
+        self.assertIsNone(entry)
+        self.assertEqual(err[0], "ambiguous_season")
+        self.assertEqual([o["season_id"] for o in err[1]], [90, 91])
+
     def test_match_season_tiers(self):
         catalog = assemble_season_catalog(
             7,
@@ -668,6 +796,17 @@ class SeasonDiscoveryClientTests(unittest.TestCase):
         self.assertEqual(out["active_season_id"], 2)
         self.assertEqual([s["season_id"] for s in out["seasons"]], [2, 1, 3])
 
+    def test_seasons_empty_catalog_reports_no_data(self):
+        def ghost_fetch_text(url, timeout):
+            if "league_series" in url:
+                return GHOST_SERIES_INDEX_HTML
+            return NO_SEASONS_HTML
+
+        out = make_client(fetch_text=ghost_fetch_text).seasons()
+        self.assertEqual(out["status"], "no_data")
+        self.assertEqual(out["seasons"], [])
+        self.assertEqual(out["league_id"], 7)
+
     def test_standings_season_name_resolves_to_discovered_id(self):
         fetch = MagicMock(return_value=SAMPLE_PAYLOAD)
         make_client(fetch).standings(season="Season 1")
@@ -685,6 +824,40 @@ class SeasonDiscoveryClientTests(unittest.TestCase):
         self.assertEqual(out["status"], "unknown_season")
         self.assertEqual(out["season_query"], "Season 99")
         self.assertEqual({s["season_id"] for s in out["seasons"]}, {1, 2, 3})
+
+
+class DefaultFetcherTests(unittest.TestCase):
+    """``_default_fetch_text`` is the season-discovery HTML transport; run it
+    with ``urlopen`` patched (no network) to pin request + utf-8 decoding."""
+
+    def test_default_fetch_text_requests_and_decodes(self):
+        captured = {}
+
+        class _Response:
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return self._body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return _Response("<p>Saison 16 — Sakhir</p>".encode("utf-8"))
+
+        url = build_seasons_index_url(9)
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            out = _default_fetch_text(url, 4.25)
+        self.assertEqual(out, "<p>Saison 16 — Sakhir</p>")
+        self.assertEqual(captured["timeout"], 4.25)
+        self.assertEqual(captured["request"].full_url, url)
+        self.assertEqual(captured["request"].get_header("User-agent"), USER_AGENT)
 
 
 class ToolRegistrationTests(unittest.TestCase):

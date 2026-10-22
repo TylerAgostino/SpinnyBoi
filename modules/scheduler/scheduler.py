@@ -23,6 +23,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, List, Optional
 
+from modules.env_config import env_str
+
 logger = logging.getLogger(__name__)
 
 Handler = Callable[["ScheduledEvent"], Awaitable[None]]
@@ -302,7 +304,7 @@ def _to_event(row: sqlite3.Row) -> ScheduledEvent:
 
 def _db_path_from_env() -> str:
     """Resolve the SQLite path from DATABASE_URL (sqlite:///path or path)."""
-    url = os.getenv("DATABASE_URL", "sqlite:///data/spinny.db")
+    url = env_str(os.environ, "DATABASE_URL", "sqlite:///data/spinny.db")
     if url.startswith("sqlite:///"):
         return url.replace("sqlite:///", "")
     if url.startswith("sqlite://"):

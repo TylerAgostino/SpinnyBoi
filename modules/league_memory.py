@@ -42,7 +42,7 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 import numpy as np
 from strands import tool as strands_tool
 
-from .env_config import env_float, env_int
+from .env_config import env_float, env_int, env_str
 
 log = logging.getLogger(__name__)
 
@@ -378,7 +378,7 @@ def make_embedder(config: VectorStoreConfig) -> Embedder:
                 "OPENAI_API_KEY is required when LEAGUE_VECTOR_EMBEDDING_PROVIDER=openai"
             )
     else:
-        api_key = os.getenv("OPENAI_API_KEY", "ollama")
+        api_key = env_str(os.environ, "OPENAI_API_KEY", "ollama")
     return OpenAICompatibleEmbedder(
         base_url=config.resolved_base_url,
         model=config.resolved_model,

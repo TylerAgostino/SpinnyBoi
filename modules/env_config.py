@@ -25,6 +25,14 @@ def require_env(env: Dict[str, str], key: str) -> str:
     return raw
 
 
+def env_str(env: Dict[str, str], key: str, default: str) -> str:
+    """Env string; default when unset/blank (compose injects empty strings)."""
+    raw = env.get(key)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw
+
+
 def env_enabled(env: Dict[str, str], key: str, default: bool = True) -> bool:
     """True unless the env value spells a false word (case-insensitive)."""
     raw = (env.get(key) or "").strip().lower()

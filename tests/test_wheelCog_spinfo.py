@@ -57,12 +57,17 @@ class ResolutionFailureTests(unittest.TestCase):
         self.assertIsNone(images)
         self.assertIsNone(name)
 
-    def test_generate_failure_returns_error_passthrough(self):
+    def test_generate_failure_is_generic(self):
         cog = make_cog([])
         cog.generate_option_set = mock.AsyncMock(side_effect=ValueError("bad tab"))
         with self.assertLogs(level="ERROR"):
             message, images, name = run_spinfo(cog)
-        self.assertEqual(message, "The preset presetA ran into an error: bad tab")
+        self.assertEqual(
+            message,
+            "The preset presetA ran into an error: something unexpected went"
+            " wrong - details are in the bot logs.",
+        )
+        self.assertNotIn("bad tab", message)
         self.assertIsNone(images)
         self.assertIsNone(name)
 

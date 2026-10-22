@@ -11,7 +11,11 @@ import unittest
 from typing import List
 from unittest import mock
 
-from modules.scheduler.scheduler import ScheduledEvent, Scheduler
+from modules.scheduler.scheduler import (
+    ScheduledEvent,
+    Scheduler,
+    _db_path_from_env,
+)
 
 
 class SchedulerTests(unittest.TestCase):
@@ -267,6 +271,110 @@ class DbErrorHandlingTests(unittest.TestCase):
             with self.assertLogs(level=logging.ERROR) as captured:
                 self.assertEqual(self.scheduler.pending(), [])
         self.assertIn("unable to open database file", "\n".join(captured.output))
+
+
+class EnvPathResolutionTests(unittest.TestCase):
+    """Issue #179: DATABASE_URL shapes and default resolution must reach
+    the Scheduler instance, not just the helper."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
+    # --- _db_path_from_env URL shapes ------------------------------------
+
+    def test_triple_slash_url_strips_prefix(self):
+        with mock.patch.dict(os.environ, {"DATABASE_URL": "sqlite:///data/env.db"}):
+            self.assertEqual(_db_path_from_env(), "data/env.db")
+
+    def test_triple_slash_url_with_absolute_path(self):
+        path = os.path.join(self.temp_dir.name, "abs.db").replace("\\", "/")
+        with mock.patch.dict(os.environ, {"DATABASE_URL": f"sqlite:///{path}"}):
+            self.assertEqual(_db_path_from_env(), path)
+
+    def test_double_slash_url_strips_prefix(self):
+        with mock.patch.dict(os.environ, {"DATABASE_URL": "sqlite://shared.db"}):
+            self.assertEqual(_db_path_from_env(), "shared.db")
+
+    def test_double_slash_absolute_posix_url_strips_only_scheme(self):
+        # four slashes: one is the root slash of /abs/path and must stay
+        with mock.patch.dict(os.environ, {"DATABASE_URL": "sqlite:////abs/x.db"}):
+            self.assertEqual(_db_path_from_env(), "/abs/x.db")
+
+    def test_bare_path_passes_through_unchanged(self):
+        path = os.path.join(self.temp_dir.name, "bare.db")
+        with mock.patch.dict(os.environ, {"DATABASE_URL": path}):
+            self.assertEqual(_db_path_from_env(), path)
+
+    def test_unset_database_url_defaults_to_data_spinny(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_db_path_from_env(), "data/spinny.db")
+
+    # --- resolution through the Scheduler instance ------------------------
+
+    def test_scheduler_no_arg_resolves_env_path(self):
+        path = os.path.join(self.temp_dir.name, "sub", "env.db")
+        with mock.patch.dict(os.environ, {"DATABASE_URL": path}):
+            scheduler = Scheduler()
+        self.assertEqual(scheduler.db_path, path)
+        self.assertTrue(os.path.exists(path))
+
+    def test_explicit_db_path_wins_over_env(self):
+        env_path = os.path.join(self.temp_dir.name, "env.db")
+        arg_path = os.path.join(self.temp_dir.name, "arg.db")
+        with mock.patch.dict(os.environ, {"DATABASE_URL": env_path}):
+            scheduler = Scheduler(arg_path)
+        self.assertEqual(scheduler.db_path, arg_path)
+        self.assertFalse(os.path.exists(env_path))
+
+    def test_from_env_builds_working_scheduler(self):
+        path = os.path.join(self.temp_dir.name, "from_env.db")
+        with mock.patch.dict(os.environ, {"DATABASE_URL": f"sqlite:///{path}"}):
+            scheduler = Scheduler.from_env()
+        self.assertEqual(scheduler.db_path, path)
+        event_id = scheduler.schedule(
+            time.time() - 1, "remind", 10, 20, data='{"k": 1}'
+        )
+        pending = scheduler.pending()
+        self.assertEqual(len(pending), 1)
+        event = pending[0]
+        self.assertEqual(event.id, event_id)
+        self.assertEqual(event.function_name, "remind")
+        self.assertEqual(event.message_id, 10)
+        self.assertEqual(event.channel_id, 20)
+        self.assertEqual(event.data, '{"k": 1}')
+
+
+class DbInitFailureTests(unittest.TestCase):
+    """Issue #179: constructing on an unopenable database path must log
+    loudly and re-raise, never half-open a scheduler."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+
+    def test_directory_as_db_path_raises_and_logs(self):
+        blocked = self.temp_dir.name  # sqlite cannot open a directory
+        with self.assertLogs(level=logging.ERROR) as captured:
+            with self.assertRaises(sqlite3.OperationalError):
+                Scheduler(blocked)
+        joined = "\n".join(captured.output)
+        self.assertIn("Error initializing database", joined)
+        self.assertIn("unable to open database file", joined)
+
+    def test_ensure_schema_failure_closes_connection(self):
+        scheduler = Scheduler(os.path.join(self.temp_dir.name, "sched.db"))
+        fake = DbErrorHandlingTests.FailingConn(
+            sqlite3.OperationalError("unable to open database file")
+        )
+        with mock.patch.object(scheduler, "_connect", return_value=fake):
+            with self.assertLogs(level=logging.ERROR) as captured:
+                with self.assertRaises(sqlite3.OperationalError):
+                    scheduler._ensure_schema()
+        self.assertTrue(fake.closed)  # finally-clause cleanup ran
+        self.assertIn(
+            "Error initializing database", "\n".join(captured.output)
+        )
 
 
 if __name__ == "__main__":

@@ -8,9 +8,10 @@ Run: .venv\\Scripts\\python -m unittest tests.test_league_memory
 """
 import asyncio
 import datetime
+import os
 import threading
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from modules import league_memory as lm
 
@@ -191,6 +192,10 @@ class HistorySinceTests(unittest.TestCase):
         for raw in ["whenever", "0", "-5", "30 months", "2026-13-40"]:
             self.assertIsNone(lm.parse_history_since(raw), raw)
 
+    def test_nonpositive_relative_age_yields_none(self):
+        for raw in ["0d", "0.0h", "0 minutes"]:
+            self.assertIsNone(lm.parse_history_since(raw), raw)
+
     def test_from_env_loads_cutoff(self):
         cfg = lm.VectorStoreConfig.from_env(
             env={"LEAGUE_VECTOR_HISTORY_SINCE": "30d"}
@@ -225,6 +230,15 @@ class HistorySinceTests(unittest.TestCase):
         )
         self.assertEqual(cfg.channel_history_cutoffs, {})
         self.assertEqual(cfg.history_cutoff.age, datetime.timedelta(days=30))
+
+    def test_suffixed_key_for_nonpositive_channel_skipped(self):
+        cfg = lm.VectorStoreConfig.from_env(
+            env={
+                "LEAGUE_VECTOR_HISTORY_SINCE_0": "30d",
+                "LEAGUE_VECTOR_HISTORY_SINCE_111": "365d",
+            }
+        )
+        self.assertEqual(list(cfg.channel_history_cutoffs), [111])
 
     def test_cutoff_for_prefers_channel_override(self):
         default = lm.HistoryCutoff(age=datetime.timedelta(days=30))
@@ -282,6 +296,26 @@ class HistorySinceTests(unittest.TestCase):
         self.assertFalse(age.includes(old))
         self.assertTrue(age.includes(recent))
 
+    def test_no_bounds_cutoff_includes_everything(self):
+        ancient = MagicMock()
+        ancient.id = 0
+        ancient.created_at = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
+        self.assertTrue(lm.HistoryCutoff().includes(ancient))
+
+    def test_naive_created_at_normalized_to_utc(self):
+        since = lm.HistoryCutoff(
+            since=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+        )
+        before, after = MagicMock(), MagicMock()
+        before.created_at = datetime.datetime(2025, 12, 31, 23, 59)  # naive
+        after.created_at = datetime.datetime(2026, 1, 1, 0, 1)  # naive
+        self.assertFalse(since.includes(before))
+        self.assertTrue(since.includes(after))
+        age = lm.HistoryCutoff(age=datetime.timedelta(days=1))
+        fresh = MagicMock()
+        fresh.created_at = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+        self.assertTrue(age.includes(fresh))
+
 
 # ---------------------------------------------------------------------------
 # Chunking
@@ -294,6 +328,10 @@ class ChunkingTests(unittest.TestCase):
 
     def test_blank_message_no_chunks(self):
         self.assertEqual(lm.chunk_text("   \n  ", 100), [])
+
+    def test_blank_interior_paragraphs_are_dropped(self):
+        self.assertEqual(lm.chunk_text("aaa\n\n\n\nbbb", 100), ["aaa\n\nbbb"])
+        self.assertEqual(lm.chunk_text("aaa\n\n \n\nbbb\n\n", 100), ["aaa\n\nbbb"])
 
     def test_paragraphs_packed_up_to_limit(self):
         text = "aaaa\n\nbbbb\n\ncccc"
@@ -437,6 +475,63 @@ class IndexingTests(unittest.IsolatedAsyncioTestCase):
         bot = make_bot({111: [("announcement race times", "mod")]})  # 404 missing
         self.assertEqual(await mem.index_channels(bot), 1)
         self.assertFalse(mem.indexed)  # 404 never resolved; retry on next startup
+        self.assertTrue(mem.query("race times"))
+
+    async def test_blank_messages_are_never_collected(self):
+        embedder = StubEmbedder()
+        mem = lm.LeagueMemory(
+            lm.VectorStoreConfig(channel_ids=(123,)), embedder=embedder
+        )
+        bot = make_bot(
+            {
+                123: [
+                    ("announcement race times", "mod"),
+                    ("", "bot"),  # attachment-only post
+                    ("   \n ", "bot"),
+                    ("rules updated", "mod"),
+                ]
+            }
+        )
+        self.assertEqual(await mem.index_channels(bot), 2)
+        results = mem.query("race times")
+        self.assertTrue(results)
+        # blanks never reach chunk_messages, so they consume no source slot
+        self.assertEqual(results[0][2]["source_index"], 0)
+        # without the guard, chunk_messages would enumerate the blanks and
+        # this slot would be 3, not 1
+        rules = mem.query("rules updated")
+        self.assertTrue(rules)
+        self.assertEqual(rules[0][2]["source_index"], 1)
+
+    async def test_embedder_is_built_from_config_on_first_use(self):
+        stub = StubEmbedder()
+        built = []
+        def factory(config):
+            built.append(config)
+            return stub
+        with patch.object(lm, "make_embedder", side_effect=factory):
+            mem = lm.LeagueMemory(lm.VectorStoreConfig(channel_ids=(123,)))
+            self.assertEqual(built, [])  # construction alone never embeds
+            self.assertEqual(await mem.index_channels(make_bot({123: [("session tonight", "tyler")]})), 1)
+            self.assertTrue(mem.query("session"))  # query reuses the same embedder
+        self.assertEqual(len(built), 1)
+        self.assertIs(built[0], mem.config)
+
+    async def test_unexpected_indexing_crash_returns_partial_size(self):
+        cfg = lm.VectorStoreConfig(channel_ids=(111, 222))
+        mem = lm.LeagueMemory(cfg, embedder=StubEmbedder())
+        bot = make_bot(
+            {111: [("announcement race times", "mod")], 222: [("doomsday post", "mod")]}
+        )
+        real_chunk = lm.chunk_messages
+        def explode(messages, max_chars):
+            if messages and messages[0][2] == "doomsday post":
+                raise RuntimeError("embedding service exploded")
+            return real_chunk(messages, max_chars)
+        with patch.object(lm, "chunk_messages", side_effect=explode):
+            self.assertEqual(await mem.index_channels(bot), 1)  # ch111's work kept
+        self.assertFalse(mem.indexed)
+        self.assertFalse(mem.indexing)  # in-progress flag cleared despite the crash
         self.assertTrue(mem.query("race times"))
 
 
@@ -660,6 +755,33 @@ class QueryAndToolTests(unittest.IsolatedAsyncioTestCase):
         mem = await self._memory_with_index()
         tool = mem.lookup_tool()
         self.assertEqual(tool.tool_name, "lookup_league_info")
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton (get_league_memory)
+# ---------------------------------------------------------------------------
+
+
+class SingletonTests(unittest.TestCase):
+    def setUp(self):
+        self.addCleanup(setattr, lm, "_league_memory", lm._league_memory)
+        lm._league_memory = None
+
+    def test_disabled_without_channel_ids_returns_none(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertIsNone(lm.get_league_memory())
+        self.assertIsNone(lm._league_memory)  # disabled: nothing is cached
+
+    def test_enabled_singleton_built_once_and_reused(self):
+        with patch.dict(os.environ, {"LEAGUE_VECTOR_CHANNEL_ID": "123"}, clear=True):
+            first = lm.get_league_memory()
+        self.assertIsNotNone(first)
+        self.assertEqual(first.config.channel_ids, (123,))
+        self.assertIs(lm.get_league_memory(), first)
+        # env changes after construction never rebuild the shared instance
+        with patch.dict(os.environ, {"LEAGUE_VECTOR_CHANNEL_ID": "456"}):
+            self.assertIs(lm.get_league_memory(), first)
+        self.assertIs(lm._league_memory, first)
 
 
 if __name__ == "__main__":

@@ -51,6 +51,19 @@ class RegistrationStatusTests(unittest.TestCase):
         status = registration_status([row], [], [])
         self.assertFalse(status.invites)
 
+    def test_registered_row_without_iracing_id_needs_no_action(self):
+        # A blank iRacing id cannot be reconciled with the league: the row
+        # is skipped entirely, not invited.
+        users = [
+            _driver("", DesiredName="Al"),
+            _driver("  ", DesiredName="Cy"),
+            _driver("10", DesiredName="Bo"),
+        ]
+        status = registration_status(users, [], [])
+        self.assertEqual(status.invites, ["Bo"])
+        self.assertFalse(status.accept_invites)
+        self.assertFalse(status.name_changes)
+
     def test_wrong_base_name_is_name_change(self):
         users = [_driver("10", DesiredName="Al", CarNumber="7")]
         members = [{"cust_id": 10, "nick_name": "Buddy", "car_number": "7"}]

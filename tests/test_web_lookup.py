@@ -12,8 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from modules import ChatHandler
 from modules.web_lookup import (
+    USER_AGENT,
     WebLookup,
     WebLookupConfig,
+    default_fetch_json,
     extract_snippets,
     format_query,
     get_web_lookup,
@@ -108,6 +110,11 @@ class TruncationTests(unittest.TestCase):
         out = truncate_snippet("x" * 300, 50)
         self.assertTrue(out.endswith("…"))
         self.assertLessEqual(len(out), 51)
+
+    def test_zero_char_budget_degrades_to_ellipsis_alone(self):
+        # Degenerate budget: the clip is empty, so the word-boundary head is
+        # empty and the helper falls back to the bare clip + ellipsis.
+        self.assertEqual(truncate_snippet("way over budget for this", 0), "…")
 
 
 class ExtractSnippetsTests(unittest.TestCase):
@@ -302,6 +309,49 @@ class ToolRegistrationTests(unittest.TestCase):
         self.assertEqual(out, "yo")
         _, kwargs = make_agent.call_args
         self.assertEqual(kwargs["tools"], [])
+
+
+class DefaultFetchJsonTests(unittest.TestCase):
+    """default_fetch_json is the real urllib transport: UA header, timeout,
+    utf-8-tolerant decode, JSON parse — verified with urlopen patched."""
+
+    class _Response:
+        def __init__(self, body: bytes):
+            self._body = body
+
+        def read(self) -> bytes:
+            return self._body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def test_request_carries_user_agent_timeout_and_parsed_body(self):
+        seen = {}
+
+        def fake_urlopen(request, timeout=None):
+            seen["request"] = request
+            seen["timeout"] = timeout
+            return self._Response(b'{"AbstractText": "Kyle Larson"}')
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            payload = default_fetch_json("https://api.duckduckgo.com/?q=x", 4.5)
+
+        self.assertEqual(payload, {"AbstractText": "Kyle Larson"})
+        self.assertEqual(
+            seen["request"].full_url, "https://api.duckduckgo.com/?q=x"
+        )
+        headers = {k.lower(): v for k, v in seen["request"].header_items()}
+        self.assertEqual(headers["user-agent"], USER_AGENT)
+        self.assertEqual(seen["timeout"], 4.5)
+
+    def test_undecodable_bytes_become_replacement_characters(self):
+        body = b'{"t": "caf\xc3\xa9 \xff tail"}'
+        with patch("urllib.request.urlopen", return_value=self._Response(body)):
+            payload = default_fetch_json("https://example.test", 1.0)
+        self.assertEqual(payload["t"], "café \ufffd tail")
 
 
 if __name__ == "__main__":

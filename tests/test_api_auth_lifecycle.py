@@ -349,6 +349,27 @@ class PagedDataTests(unittest.TestCase):
         self.assertEqual(self.handler.get.call_count, 1)
         self.handler.login.assert_not_called()
 
+    def test_second_401_with_cooperative_raise_for_status_returns_empty(self):
+        # A raise_for_status() that does not raise (the response "lies") must
+        # still terminate the spent-retry cycle with {} — never loop.
+        self.handler.logged_in = True
+        self.handler.get = mock.Mock(return_value=resp(401))
+        result = self.handler._get_paged_data(API + "/data/member/get?cust_ids=9")
+        self.assertEqual(result, {})
+        self.assertEqual(self.handler.get.call_count, 2)
+        self.assertEqual(self.handler.login.call_count, 1)
+
+    def test_non_2xx_with_cooperative_raise_for_status_returns_empty(self):
+        # Defensive-branch pin: real requests raise on 503 (covered by
+        # test_non_401_error_raises_for_status); this locks the {} fallback
+        # when raise_for_status declines to raise, with no login fired.
+        self.handler.logged_in = True
+        self.handler.get = mock.Mock(return_value=resp(503, text="unavailable"))
+        result = self.handler._get_paged_data(API + "/data/member/get?cust_ids=9")
+        self.assertEqual(result, {})
+        self.assertEqual(self.handler.get.call_count, 1)
+        self.handler.login.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

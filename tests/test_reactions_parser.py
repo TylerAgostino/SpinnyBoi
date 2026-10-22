@@ -55,6 +55,21 @@ class ParseReactionLinesTests(unittest.TestCase):
     def test_empty_middle_emote_dropped_but_key_kept(self):
         parsed = parse_reaction_lines(["mid,,emote2\n"])
         self.assertEqual(parsed, {"mid": ["emote2"]})
+
+    def test_line_level_exception_is_logged_and_parsing_continues(self):
+        # A "line" that explodes inside the try block (not a str: .split
+        # raises) is logged by the per-line except arm; later lines parse.
+        with self.assertLogs(level="ERROR") as captured:
+            parsed = parse_reaction_lines(
+                [RuntimeError("not a str"), "ok,emote1\n", 42]
+            )
+        self.assertEqual(parsed, {"ok": ["emote1"]})
+        self.assertEqual(len(captured.output), 2)
+        self.assertTrue(
+            all("Something went wrong" in msg for msg in captured.output)
+        )
+
+
 class RealFileTests(unittest.TestCase):
     def test_shipped_reactions_file_parses_clean_and_warns_nothing(self):
         shipped = Path(__file__).resolve().parent.parent / "reactions.txt"

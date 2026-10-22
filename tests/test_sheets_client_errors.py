@@ -1,6 +1,10 @@
 # pyright: basic
 """SheetsClient failure paths: HttpError wrapping, build failure, env credentials."""
 
+import importlib
+import os
+import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -189,6 +193,55 @@ class CredentialsFromEnvTests(unittest.TestCase):
             with self.assertLogs(level="ERROR") as captured:
                 self.assertIsNone(self.run_env({"GOOGLE_CREDENTIALS_JSON": '{"a":1}'}))
         self.assertIn("bad json blob", "\n".join(captured.output))
+
+
+class ImportErrorFallbackTests(unittest.TestCase):
+    """Module import without the google libraries must degrade loudly, not
+    crash: the ImportError branch logs the problem and clears the
+    GOOGLE_APIS_AVAILABLE flag. The reload is undone in finally so no other
+    test ever observes the degraded module."""
+
+    def test_missing_google_libraries_log_error_and_clear_flag(self):
+        original_globals = dict(sheetsModule.__dict__)
+        hidden = {
+            name: None  # a None sys.modules entry makes import raise ImportError
+            for name in (
+                "google",
+                "google.oauth2",
+                "google.oauth2.service_account",
+                "googleapiclient",
+                "googleapiclient.discovery",
+                "googleapiclient.errors",
+            )
+        }
+        try:
+            with mock.patch.dict(sys.modules, hidden):
+                with self.assertLogs(level="ERROR") as captured:
+                    degraded = importlib.reload(sheetsModule)
+            self.assertFalse(degraded.GOOGLE_APIS_AVAILABLE)
+            self.assertIn(
+                "Google API libraries not installed",
+                "\n".join(captured.output),
+            )
+        finally:
+            sheetsModule.__dict__.clear()
+            sheetsModule.__dict__.update(original_globals)
+        self.assertTrue(sheetsModule.GOOGLE_APIS_AVAILABLE)
+
+
+class GoogleLibsMissingContractTests(unittest.TestCase):
+    def test_credentials_from_env_short_circuits_to_none(self):
+        # No google libs => no credentials, even with a real file configured:
+        # the availability guard runs before the file seam is ever touched.
+        with tempfile.NamedTemporaryFile(suffix=".json") as creds_file:
+            with mock.patch.object(sheetsModule, "GOOGLE_APIS_AVAILABLE", False), \
+                 mock.patch.dict(
+                     os.environ, {"GOOGLE_CREDENTIALS_FILE": creds_file.name}
+                 ):
+                self.assertIsNone(sheetsModule.credentials_from_env())
+                client = sheetsModule.SheetsClient.from_env()
+        self.assertFalse(client.available)
+
 
 
 if __name__ == "__main__":

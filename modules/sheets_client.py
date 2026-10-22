@@ -26,6 +26,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from modules.env_config import env_str
+
 try:
     from google.oauth2.service_account import Credentials
     from googleapiclient.discovery import build
@@ -66,7 +68,7 @@ def credentials_from_env() -> Optional[Any]:
     if not GOOGLE_APIS_AVAILABLE:
         return None
     try:
-        creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+        creds_file = env_str(os.environ, "GOOGLE_CREDENTIALS_FILE", "credentials.json")
         if os.path.exists(creds_file):
             logging.info("Google Sheets credentials loaded from file")
             return Credentials.from_service_account_file(creds_file, scopes=SCOPES)

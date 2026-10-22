@@ -8,8 +8,24 @@ from modules.env_config import (
     env_float,
     env_int,
     env_int_or_none,
+    env_str,
     require_env,
 )
+
+
+class EnvStrTests(unittest.TestCase):
+    def test_set_value_returned_verbatim(self):
+        self.assertEqual(env_str({"X": "http://host/v1"}, "X", "d"), "http://host/v1")
+
+    def test_unset_is_default(self):
+        self.assertEqual(env_str({}, "X", "d"), "d")
+
+    def test_blank_is_default(self):
+        self.assertEqual(env_str({"X": ""}, "X", "d"), "d")
+        self.assertEqual(env_str({"X": "   "}, "X", "d"), "d")
+
+    def test_inner_whitespace_preserved(self):
+        self.assertEqual(env_str({"X": " a b "}, "X", "d"), " a b ")
 
 
 class EnvEnabledTests(unittest.TestCase):

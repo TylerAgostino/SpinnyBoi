@@ -13,14 +13,14 @@ from PIL import Image
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
-from modules.env_config import env_enabled, env_int
+from modules.env_config import env_enabled, env_int, env_str
 from modules.league_memory import get_league_memory
 from modules.simracerhub import get_simracerhub
 from modules.web_lookup import get_web_lookup
 
 # LLM endpoint/model: env-overridable, defaults to the home Ollama box.
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.1.152:11080/v1")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS")
+OLLAMA_BASE_URL = env_str(os.environ, "OLLAMA_BASE_URL", "http://192.168.1.152:11080/v1")
+OLLAMA_MODEL = env_str(os.environ, "OLLAMA_MODEL", "unsloth/Qwen3.8-Flash-Next-GGUF:IQ3_XXS")
 
 # Without max_tokens, llama.cpp/Ollama generate unbounded (num_predict=-1):
 # a degraded model repeats nonsense forever and the turn never returns.
@@ -45,7 +45,7 @@ def _make_model(temperature: float) -> OpenAIModel:
     # guard that actually fires against endless streams.
     return OpenAIModel(
         client_args={
-            "api_key": os.getenv("OPENAI_API_KEY", "ollama"),
+            "api_key": env_str(os.environ, "OPENAI_API_KEY", "ollama"),
             "base_url": OLLAMA_BASE_URL,
             "timeout": _turn_timeout_seconds(),
         },

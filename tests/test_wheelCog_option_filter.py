@@ -9,7 +9,7 @@ from unittest import mock
 
 import pandas as pd
 
-from modules.wheelCog import NoTabError, WheelCog
+from modules.wheelCog import NoTabError, WheelCog, WheelUserError
 
 
 def roster_df():
@@ -94,6 +94,19 @@ class ComparisonFilterTests(unittest.TestCase):
             [o.option for o in gen("team<>bet|points>=10")], ["Max", "Ian"]
         )
 
+    def test_or_branch_supports_lte(self):
+        # points<=3 matches only Leo; team=beta adds nothing new (Leo again)
+        self.assertEqual([o.option for o in gen("points<=3|team=beta")], ["Leo"])
+
+    def test_or_branch_supports_strict_less_than(self):
+        # points<3 matches nobody (Leo has exactly 3); points=10 adds Max
+        self.assertEqual([o.option for o in gen("points<3|points=10")], ["Max"])
+
+    def test_or_branch_equals_is_whole_cell_case_insensitive(self):
+        # a partial operand must NOT match under '='; case is ignored
+        self.assertEqual([o.option for o in gen("team=bet|points>9")], ["Max"])
+        self.assertEqual([o.option for o in gen("team=BETA")], ["Leo"])
+
     def test_comma_combines_filters_anded(self):
         self.assertEqual([o.option for o in gen("team:alpha,points>8")], ["Max"])
 
@@ -144,6 +157,19 @@ class FailureTests(unittest.TestCase):
     def test_empty_result_raises_named_filter_message(self):
         with self.assertRaisesRegex(Exception, "returned no results"):
             gen("points>1000")
+
+    def test_malformed_or_query_raises_wheel_user_error_and_logs_query(self):
+        # A dangling ">=" operand parses into a query pandas rejects; the
+        # user gets the fixed reply, the log keeps the offending query.
+        with self.assertLogs(level="ERROR") as logs:
+            with self.assertRaisesRegex(
+                WheelUserError,
+                r"^Something is wrong with one of your filters\.$",
+            ):
+                gen("points>=|team:alpha")
+        joined = "\n".join(logs.output)
+        self.assertIn("Error processing filter", joined)
+        self.assertIn("`points`>=", joined)
 
 
 if __name__ == "__main__":

@@ -15,8 +15,6 @@ import logging
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
-import discord
-
 from modules.registrationCog import RegistrationCog
 from tests.test_registrationCog import (
     DISCORD_ID,

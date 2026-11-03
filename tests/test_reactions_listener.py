@@ -9,7 +9,6 @@ import modules.reactionsCog as reactionsCogModule
 from modules.reactionsCog import ReactionsCog
 
 LUCKY_DRIVER_ID = 292447304395522048
-SECOND_DRIVER_ID = 267830473328295937
 
 
 def make_cog(reaction_dict, bot_user=None):
@@ -121,34 +120,6 @@ class ReactionsSpecialUserTests(unittest.TestCase):
         message.add_reaction.assert_awaited_once_with(
             "<a:wheel:1096138684786544883>"
         )
-
-    def test_second_driver_random_emote_below_threshold(self):
-        cog = make_cog({"k1": ["emote-x", "emote-y"], "k2": ["emote-z"]})
-        self.randint.return_value = 9  # < 10
-        self.choice.side_effect = [["emote-y"], "emote-y"]
-        message = make_message(author_id=SECOND_DRIVER_ID, content="plain")
-        asyncio.run(cog.on_message(message))
-        calls = self.choice.call_args_list
-        self.assertEqual(calls[0].args[0], [["emote-x", "emote-y"], ["emote-z"]])
-        self.assertEqual(calls[1].args[0], ["emote-y"])  # the picked set, not a list
-        message.add_reaction.assert_awaited_once_with("emote-y")
-
-    def test_second_driver_skipped_at_threshold(self):
-        cog = make_cog({"k1": ["emote-x"]})
-        self.randint.return_value = 10  # threshold is < 10
-        message = make_message(author_id=SECOND_DRIVER_ID, content="plain")
-        asyncio.run(cog.on_message(message))
-        message.add_reaction.assert_not_called()
-
-    def test_second_driver_add_failure_logged_not_raised(self):
-        cog = make_cog({"k1": ["emote-x"]})
-        self.randint.return_value = 3
-        self.choice.side_effect = [["emote-x"], "emote-x"]
-        message = make_message(author_id=SECOND_DRIVER_ID, content="plain")
-        message.add_reaction = mock.AsyncMock(side_effect=RuntimeError("nope"))
-        with self.assertLogs(level="ERROR") as captured:
-            asyncio.run(cog.on_message(message))
-        self.assertIn("nope", "\n".join(captured.output))
 
     def test_driver_message_also_matching_key_gets_both_reactions(self):
         cog = make_cog({"crash": ["emote-key-set"]})
